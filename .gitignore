@@ -1,0 +1,17 @@
+.DS_Store
+
+# iOS
+ios/Config/Local.xcconfig
+ios/build/
+ios/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Android
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml

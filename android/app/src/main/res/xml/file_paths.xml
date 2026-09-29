@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Recipe card images for sharing, and camera captures in progress. -->
+    <cache-path name="share" path="share/" />
+    <cache-path name="captures" path="captures/" />
+</paths>

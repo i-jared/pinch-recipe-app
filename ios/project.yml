@@ -1,0 +1,83 @@
+name: Pinch
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Pinch.xcconfig
+  Release: Config/Pinch.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  Pinch:
+    type: application
+    platform: iOS
+    sources:
+      - path: Pinch
+    info:
+      path: Pinch/Info.plist
+      properties:
+        CFBundleDisplayName: Pinch
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Pinch uses the camera to scan recipe cards and cookbook pages.
+        NSPhotoLibraryAddUsageDescription: Pinch saves recipe cards you share to your photo library.
+        PinchGoogleClientID: $(GOOGLE_IOS_CLIENT_ID)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PINCH_BUNDLE_ID)
+        DEVELOPMENT_TEAM: $(PINCH_DEVELOPMENT_TEAM)
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_EMIT_LOC_STRINGS: YES
+  PinchTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PinchTests
+    dependencies:
+      - target: Pinch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PINCH_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: $(PINCH_DEVELOPMENT_TEAM)
+schemes:
+  Pinch:
+    build:
+      targets:
+        Pinch: all
+        PinchTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PinchTests
+    run:
+      config: Debug
+    archive:
+      config: Release
