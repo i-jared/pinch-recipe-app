@@ -83,6 +83,11 @@ The prompt, schema and response cleanup live in `RecipeAI.swift` and `RecipeAI.k
 clients are `OpenRouter.swift` and `OpenRouter.kt`. Website scraping is `WebRecipeImporter`
 on both platforms.
 
+## Support
+
+For help with Pinch or Pinch Managed, email Whatado at [jaredclambert@gmail.com](mailto:jaredclambert@gmail.com).
+For a self-hosted account, contact the operator of your server for help with that account or its backups.
+
 ## Running the apps
 
 ### iOS
