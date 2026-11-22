@@ -1,6 +1,6 @@
 # Pinch privacy policy
 
-_Effective October 2, 2026_
+_Effective November 22, 2026_
 
 Pinch is a recipe box app for iPhone, iPad and Android, published by Whatado, LLC ("we").
 This policy explains what happens to your information when you use it.
@@ -9,7 +9,7 @@ a Pinch server.
 
 ## The short version
 
-- Pinch works without an account and has no ads, analytics or tracking. You can sign in to
+- Pinch works without an account and has no ads. You can sign in to
   Pinch or connect to a self-hosted server for backup and shared cookbooks.
 - Your recipes and photos are saved on your device. Signing in also sends them to the server
   that hosts your account.
@@ -21,6 +21,12 @@ a Pinch server.
 Recipes, the photos you scan or choose, your settings and your cooking timers are saved on
 your device. Recipes work offline. We do not operate the optional self-hosted servers.
 Uninstalling the app does not delete data already backed up or shared on your chosen server.
+
+## Android text recognition
+
+Google ML Kit processes scan images and recognized text on your device. Its Android SDK sends
+app and device information, installation identifiers, feature usage, processing times, and error
+codes to Google over HTTPS for diagnostics and usage analytics. [Google ML Kit privacy information](https://developers.google.com/ml-kit/terms)
 
 ## AI reading
 
