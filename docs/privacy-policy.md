@@ -49,6 +49,12 @@ Signing out of a managed account stops managed AI requests. Self-hosting users c
 ingredient matching or remove their AI key under **Self-hosting → Reading recipes**. Pinch has
 on-device reading and ingredient matching for offline use.
 
+## Managed subscriptions
+
+When you subscribe, Stripe collects and processes your payment details. Pinch stores a Stripe
+customer reference and subscription access status with your account. Use the web billing portal
+to update your payment method or cancel your subscription. [Stripe privacy policy](https://stripe.com/privacy)
+
 ## Adding recipes from websites
 
 When you add a recipe from a link, your device loads that web page directly from the website,
@@ -77,6 +83,9 @@ Disconnecting stops sync and keeps both local and server data. **Delete server a
 Settings removes your server backup, shares, account and cookbooks you own, after password
 confirmation. Local device copies remain. The server operator controls independent backup
 retention and can help with account access or deletion requests.
+
+Managed users can also [delete their Pinch account on the web](https://recipes.lmbrt.net/account/delete)
+using their username and password. This cancels their subscription. Stripe may retain payment records.
 
 ## ChatGPT and Codex plugin (optional)
 
@@ -118,8 +127,8 @@ app you pick. What happens next is up to you and that app.
 
 ## Children
 
-Pinch isn't directed at children under 13, and we don't knowingly collect information from
-anyone, including children.
+Pinch isn't directed at children under 13, and we don't knowingly collect personal information
+from children under 13.
 
 ## Changes
 
@@ -128,4 +137,4 @@ noted in the app's release notes.
 
 ## Contact
 
-Questions about privacy: [support email], Whatado, LLC.
+For privacy questions or requests, contact Whatado, LLC at [jaredclambert@gmail.com](mailto:jaredclambert@gmail.com).
