@@ -449,6 +449,16 @@ class FuzzySearchTest {
 
 class RecipeCodingTest {
     @Test
+    fun recipePhotosAndBannerRoundTrip() {
+        val recipe = Recipe(photos = listOf("page.jpg"), recipePhotos = listOf("first.jpg", "second.jpg"), bannerPhoto = "second.jpg")
+        val decoded = PinchJson.decode(PinchJson.encode(recipe))
+        assertEquals(listOf("page.jpg"), decoded.photos)
+        assertEquals(listOf("first.jpg", "second.jpg"), decoded.recipePhotos)
+        assertEquals("second.jpg", decoded.bannerPhoto)
+        assertFalse(PinchJson.encode(Recipe()).contains("\"recipePhotos\""))
+    }
+
+    @Test
     fun roundTripKeepsEverything() {
         val recipe = SampleRecipes.sundaySauce().copy(lastCookedAt = Instant.ofEpochMilli(1_790_000_000_123))
         val decoded = PinchJson.decode(PinchJson.encode(recipe))

@@ -3,7 +3,7 @@
 A recipe box for your phone. Photograph a recipe card, a cookbook page or a magazine clipping,
 or paste a link to a recipe website, and Pinch reads it, sorts it into ingredients and steps, and
 files it with its own patterned cover. Recipes live on the device and the app works offline.
-AI reading (with your own OpenRouter key) and Google Drive backup are both optional.
+Sign in to Pinch for automatic backup and AI reading, or connect your own server.
 
 Two fully native apps with the same design and behavior:
 
@@ -24,7 +24,7 @@ Two fully native apps with the same design and behavior:
   Android uses ML Kit's document scanner. Both find page edges, straighten the page, and take as
   many pages as you need. You can also pick photos, paste text, or type a recipe in, and add
   pages to a recipe later.
-- **Read recipes with AI.** Add your own [OpenRouter](https://openrouter.ai) key in Settings and
+- **Read recipes with AI.** Sign in to Pinch, or add your own [OpenRouter](https://openrouter.ai) key under Self-hosting, and
   Pinch sends page photos (plus the phone's own OCR text as a hint), pasted text or web pages to
   DeepSeek V4.1 Flash, which returns the recipe as strict JSON. It reads handwriting, fixes
   misread words and keeps ingredient groups. See [AI reading](#ai-reading).
@@ -40,36 +40,44 @@ Two fully native apps with the same design and behavior:
 - **Find recipes with fuzzy search.** Typos ("chiken"), abbreviations ("chkn"), accents
   ("creme brulee"), plurals, and words from ingredients or steps all match. Results show the
   line that matched. Filter by favorites, "30 min or less", or tags.
-- **Cook from a display built for the kitchen.** A patterned cover, big type, bold quantities,
+- **Add a recipe banner.** In **Edit recipe → Cover**, add photos and tap the one you want for the banner.
+  Photos appear in the recipe gallery. The banner also appears on the library card and in shared pictures.
+- **Cook from a display built for the kitchen.** A recipe cover, big type, bold quantities,
   an ingredient checklist, a servings scaler that rounds the way a cook would (no "1⅛ eggs"),
   numbered steps with bold times and temperatures, and one-tap timers.
 - **Cook mode.** One step at a time in large type with the screen kept on, the ingredients each
   step uses at the scaled amounts, timers that ring even from the background, and a small
-  celebration at the end.
+  celebration at the end. Managed accounts use AI ingredient matching automatically. If you self-host,
+  turn on **Match Cook Mode ingredients with AI** under **Self-hosting → Reading recipes**.
+  Cook Mode uses on-device matching while it waits or if OpenRouter is unavailable.
 - **Share as a picture.** Sends a picture of the recipe card through the normal share sheet.
   The recipient gets an image and doesn't need the app.
-- **Optional Google Drive sync.** Backs up to a **Pinch Recipes** folder in your own Drive and
-  syncs between phones, iPhone and Android alike, since both apps share one
-  [file format](docs/recipe-format.md).
+- **Cookbooks for your own collection.** Switch between **Cookbooks** and the **All recipes**
+  grid using the icons beside Settings. A recipe can belong to several cookbooks. Organizing works
+  offline, without an account; removing a cookbook keeps its recipes in your library.
+- **Optional backup and cookbook sharing.** Sign in to Pinch or connect your own server to back up recipes,
+  scanned pages and cookbooks. Invite viewers to read and cook, or editors to add and remove
+  recipes. An editor's contribution automatically joins the owner's library. The owner's edits
+  appear in shared cookbooks; other people can save independent copies. See [server setup](backend/README.md).
+- **Focused settings.** Managed accounts sync and use AI automatically. Server and AI configuration live under **Self-hosting**.
 
 On iPhones with Apple Intelligence (iOS 26+), offline scans also get an optional clean-up pass
 with Apple's on-device model. It falls back to the built-in parser when the model isn't available.
 
 ## AI reading
 
-Pinch has no server and no key of its own. Each person pastes their own OpenRouter key into
-Settings; it's checked against OpenRouter, then kept in the iOS Keychain (this device only) or
-encrypted with an Android Keystore key (left out of backups). It is never synced or logged.
+Signing in to Pinch enables AI reading and Cook Mode ingredient matching through the managed
+server. Self-hosting users can add their own OpenRouter key under **Self-hosting → Reading recipes**.
+Their device connects directly to OpenRouter and keeps the key in the iOS Keychain or encrypted
+with Android Keystore.
 
 - **Model:** `deepseek/deepseek-v4.1-flash` (vision and text), with a strict JSON schema,
   reasoning off and temperature 0. OpenRouter is asked to route only to providers that support
   all of that, and Pinch retries once with plain JSON mode if none can take the request.
-- **Cost:** roughly $0.30 per million input tokens and $1.20 per million output tokens, so a
-  recipe costs a fraction of a cent. Settings shows what the key has spent.
-- **What gets sent:** only the photos, text or web page being added. Page photos are resized to
-  2000 px JPEGs. Nothing is sent without a key.
+- **What gets sent:** the photos, text or page content being imported, or the ingredients and
+  directions of the recipe opened in Cook Mode. Page photos are resized to 2000 px JPEGs.
 - **Fallbacks:** offline, out of credit, or any other failure falls back to the on-phone reader,
-  and the review screen says why. Websites without recipe markup need a key.
+  and the review screen says why. Websites without recipe markup need AI reading.
 
 The prompt, schema and response cleanup live in `RecipeAI.swift` and `RecipeAI.kt`; the HTTP
 clients are `OpenRouter.swift` and `OpenRouter.kt`. Website scraping is `WebRecipeImporter`
@@ -110,6 +118,9 @@ Requires Android Studio (or JDK 17+ with the Android SDK, platform 36).
 cd android && ./gradlew testDebugUnitTest assembleDebug
 ```
 
+To update an older development install in place, add
+`-PpinchApplicationId=com.example.pinch`. Normal builds use `com.whatado.pinch`.
+
 Debug builds accept `--ez seedSamples true`, `--es importPages /path/a.jpg,/path/b.jpg`,
 `--es importUrl https://…` and `--ez forceWebView true` as intent extras. Android also shows up as
 a share target: share a recipe screenshot, copied text or a link from your browser to
@@ -118,11 +129,34 @@ a share target: share a recipe screenshot, copied text or a link from your brows
 ML Kit's document scanner is delivered by Google Play services on first use. Until it's on the
 phone, **Scan a recipe** opens the regular camera instead, so scanning works offline from day one.
 
-## Google Drive
+## Publishing
 
-Connecting Drive needs a free OAuth client from Google Cloud: one iOS client and one Android
-client in the same project. There's no server. See
-[docs/google-drive-setup.md](docs/google-drive-setup.md).
+Configure iOS signing in `ios/Config/Local.xcconfig` or Android signing in
+`android/keystore.properties` before making a store build. Both paths have examples in the
+repository. The [privacy policy](docs/privacy-policy.md) covers local, managed, and self-hosted use.
+
+## ChatGPT and Codex plugin
+
+The [Pinch plugin](docs/plugin/README.md) adds private recipe search, reading,
+saving, favorites, and a recipe browser in ChatGPT's sidebar or beside a chat.
+It connects through OAuth to the same server account as the mobile apps.
+The implementation and development ZIP are ready for local testing; public
+deployment, publisher verification and OpenAI review are still required.
+
+## Self-hosted backup & sharing
+
+Run the included [Pinch Server](backend/README.md) with Docker Compose. It uses SQLite and a
+persistent volume, with optional automatic HTTPS through Caddy. In either app, open
+**Settings → Account → Use your own server** and connect with your server address and account, or open a cookbook
+invitation to join and create an account. Tap the **Add to cookbook** icon beside Share on a recipe, or **Add recipes**
+inside a cookbook. In cookbook details, invite people as **Viewer** or **Editor** and manage access.
+Shared recipes include notes and scanned pages. New contributions reach the owner's library
+on the next sync; sync runs every 30 seconds while the app is active as well as after edits.
+
+This experience requires the updated backend. Startup migrates existing groups to cookbooks,
+preserving members, invitation links and the previously shared contents. Existing members become
+editors. Old shared snapshots are retained without publishing later private edits. Update all
+phones together: old clients receive an update-required message when opening a migrated group.
 
 ## How it's put together
 
@@ -130,11 +164,11 @@ client in the same project. There's no server. See
 | --- | --- | --- |
 | UI | SwiftUI | Jetpack Compose + Material 3 |
 | Text recognition | Vision (`VNRecognizeTextRequest`) | ML Kit Text Recognition (bundled model) |
-| AI reading | OpenRouter over `URLSession`, key in Keychain | OpenRouter over `HttpURLConnection`, key encrypted with Android Keystore |
+| AI reading | Managed Pinch server or OpenRouter over `URLSession` | Managed Pinch server or OpenRouter over `HttpURLConnection` |
 | Websites | `URLSession`, falling back to a hidden `WKWebView` | `HttpURLConnection`, falling back to a hidden `WebView` |
 | Page capture | VisionKit document camera, PhotosPicker | ML Kit document scanner, camera, Photo Picker |
 | Storage | One JSON file per recipe in Application Support | One JSON file per recipe in app files |
-| Drive sign-in | OAuth 2.0 + PKCE via `ASWebAuthenticationSession`, Keychain | Google Identity `AuthorizationClient` |
+| Server sync | HTTPS via `URLSession`, session in Keychain | HTTPS via `HttpURLConnection`, session encrypted with Android Keystore |
 | Share image | `ImageRenderer` → PNG → `ShareLink` | Off-screen Compose → `GraphicsLayer` → PNG → share sheet |
 | Timers | Local notifications | Exact alarms (when allowed) + notification |
 

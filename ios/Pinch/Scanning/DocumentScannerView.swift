@@ -9,8 +9,9 @@ struct DocumentScannerView: UIViewControllerRepresentable {
 
     static var isSupported: Bool {
         #if targetEnvironment(simulator)
-        // The simulator has no camera; the photo picker stands in.
-        return false
+        // The simulator has no camera; the photo picker stands in. `-PinchScreenshotMode YES`
+        // shows the phone's buttons anyway, for App Store screenshots.
+        return UserDefaults.standard.bool(forKey: "PinchScreenshotMode")
         #else
         return VNDocumentCameraViewController.isSupported
         #endif

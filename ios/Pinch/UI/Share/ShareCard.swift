@@ -6,6 +6,7 @@ import SwiftUI
 struct ShareCardView: View {
     let recipe: Recipe
     let scale: Double
+    let photos: PhotoStore
 
     private let ink = Color(hex: 0x17332C)
     private let inkSoft = Color(hex: 0x587068)
@@ -14,7 +15,7 @@ struct ShareCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                CoverArt(palette: recipe.palette, pattern: recipe.pattern, cell: 26)
+                RecipeCover(recipe: recipe, photos: photos, cell: 26, maxPixelSize: 1440)
                     .frame(width: width, height: 168)
                 EmojiSticker(emoji: recipe.emoji, size: 88, tilt: -7)
                     .padding(.leading, 26)
@@ -183,8 +184,8 @@ enum ShareCardRenderer {
         let url: URL
     }
 
-    static func render(_ recipe: Recipe, scale: Double) -> Card? {
-        let content = ShareCardView(recipe: recipe, scale: scale)
+    static func render(_ recipe: Recipe, scale: Double, photos: PhotoStore) -> Card? {
+        let content = ShareCardView(recipe: recipe, scale: scale, photos: photos)
             .environment(\.colorScheme, .light)
             .environment(\.dynamicTypeSize, .large)
         let renderer = ImageRenderer(content: content)
@@ -215,6 +216,7 @@ struct ShareRecipeSheet: View {
     let recipe: Recipe
     let scale: Double
     @Environment(\.dismiss) private var dismiss
+    @Environment(RecipeStore.self) private var store
     @State private var card: ShareCardRenderer.Card?
     @State private var failed = false
 
@@ -248,21 +250,28 @@ struct ShareRecipeSheet: View {
             }
             .background(Theme.canvas.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                if let card {
-                    ShareLink(
-                        item: card.url,
-                        preview: SharePreview(recipe.displayTitle, image: Image(uiImage: card.image))
-                    ) {
-                        Label("Share recipe card", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity)
+                VStack(spacing: 10) {
+                    if let card {
+                        ShareLink(
+                            item: card.url,
+                            preview: SharePreview(recipe.displayTitle, image: Image(uiImage: card.image))
+                        ) {
+                            Label("Share recipe card", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: 520)
+                    if let url = URL(string: recipe.sourceURL), ["https", "http"].contains(url.scheme ?? "") {
+                        ShareLink(item: url) { Label("Share original link", systemImage: "link") }
+                            .buttonStyle(SoftButtonStyle())
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+                .frame(maxWidth: 520)
+                .background(BottomFade())
             }
-            .navigationTitle("Share as a picture")
+            .navigationTitle("Share recipe")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -270,7 +279,7 @@ struct ShareRecipeSheet: View {
                 }
             }
             .task {
-                card = ShareCardRenderer.render(recipe, scale: scale)
+                card = ShareCardRenderer.render(recipe, scale: scale, photos: store.photos)
                 failed = card == nil
             }
         }

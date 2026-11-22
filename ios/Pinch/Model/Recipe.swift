@@ -27,8 +27,15 @@ struct RecipeItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// A saved recipe. The JSON encoding of this type is the on-disk and Google Drive
+/// A saved recipe. The JSON encoding of this type is the on-disk and server
 /// format, shared with the Android app (see docs/recipe-format.md).
+struct RecipeOrigin: Codable, Hashable, Sendable {
+    let groupId: String
+    let shareId: String
+    let groupName: String
+    let sharedBy: String
+}
+
 struct Recipe: Codable, Hashable, Identifiable, Sendable {
     static let schemaVersion = 1
 
@@ -51,6 +58,10 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
     var pattern: CoverPattern
     /// File names of scanned pages, in page order. Files live in the photo store.
     var photos: [String]
+    var recipePhotos: [String]
+    var bannerPhoto: String?
+
+    var photoFiles: [String] { photos + recipePhotos }
     var isFavorite: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -58,6 +69,7 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
     /// The text exactly as it was read from the scans, kept for search and re-parsing.
     var rawText: String
     /// Set when the recipe is deleted, so the deletion can sync to other devices.
+    var origin: RecipeOrigin? = nil
     var deletedAt: Date?
 
     init(
@@ -78,6 +90,8 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
         palette: CoverPalette = .jade,
         pattern: CoverPattern = .gingham,
         photos: [String] = [],
+        recipePhotos: [String] = [],
+        bannerPhoto: String? = nil,
         isFavorite: Bool = false,
         createdAt: Date = .now,
         updatedAt: Date = .now,
@@ -102,6 +116,8 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
         self.palette = palette
         self.pattern = pattern
         self.photos = photos
+        self.recipePhotos = recipePhotos
+        self.bannerPhoto = bannerPhoto
         self.isFavorite = isFavorite
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -114,7 +130,8 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
         case schema, id, title, summary, source, servings, prepTime, cookTime, totalTime
         case sourceURL = "sourceUrl"
         case ingredients, steps, notes, tags, emoji, palette, pattern, photos, isFavorite
-        case createdAt, updatedAt, lastCookedAt, rawText, deletedAt
+        case recipePhotos, bannerPhoto
+        case createdAt, updatedAt, lastCookedAt, rawText, deletedAt, origin
     }
 
     init(from decoder: Decoder) throws {
@@ -136,12 +153,15 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
         palette = CoverPalette(rawValue: try c.decodeIfPresent(String.self, forKey: .palette) ?? "") ?? .jade
         pattern = CoverPattern(rawValue: try c.decodeIfPresent(String.self, forKey: .pattern) ?? "") ?? .gingham
         photos = try c.decodeIfPresent([String].self, forKey: .photos) ?? []
+        recipePhotos = try c.decodeIfPresent([String].self, forKey: .recipePhotos) ?? []
+        bannerPhoto = try c.decodeIfPresent(String.self, forKey: .bannerPhoto)
         isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         lastCookedAt = try c.decodeIfPresent(Date.self, forKey: .lastCookedAt)
         rawText = try c.decodeIfPresent(String.self, forKey: .rawText) ?? ""
         deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
+        origin = try c.decodeIfPresent(RecipeOrigin.self, forKey: .origin)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -164,12 +184,15 @@ struct Recipe: Codable, Hashable, Identifiable, Sendable {
         try c.encode(palette.rawValue, forKey: .palette)
         try c.encode(pattern.rawValue, forKey: .pattern)
         try c.encode(photos, forKey: .photos)
+        if !recipePhotos.isEmpty { try c.encode(recipePhotos, forKey: .recipePhotos) }
+        try c.encodeIfPresent(bannerPhoto, forKey: .bannerPhoto)
         try c.encode(isFavorite, forKey: .isFavorite)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encodeIfPresent(lastCookedAt, forKey: .lastCookedAt)
         try c.encode(rawText, forKey: .rawText)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
+        try c.encodeIfPresent(origin, forKey: .origin)
     }
 }
 

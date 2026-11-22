@@ -11,7 +11,7 @@ enum AppPaths {
     static var shareCards: URL { FileManager.default.temporaryDirectory.appendingPathComponent("share", isDirectory: true) }
 }
 
-/// Scanned pages, stored as JPEG files named by UUID so they sync without collisions.
+/// Recipe photos and scanned pages, stored as JPEGs with unique file names.
 final class PhotoStore: @unchecked Sendable {
     static let shared = PhotoStore()
 
@@ -52,6 +52,14 @@ final class PhotoStore: @unchecked Sendable {
         thumbnails.removeObject(forKey: name as NSString)
     }
 
+    func importPhoto(_ data: Data) throws -> String {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = Self.thumbnail(from: source, maxPixelSize: 2400) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return try save(image)
+    }
+
     func data(for name: String) -> Data? {
         try? Data(contentsOf: url(for: name))
     }
@@ -67,15 +75,19 @@ final class PhotoStore: @unchecked Sendable {
         let key = "\(name)@\(Int(maxPixelSize))" as NSString
         if let cached = thumbnails.object(forKey: key) { return cached }
         guard let source = CGImageSourceCreateWithURL(url(for: name) as CFURL, nil) else { return nil }
+        guard let image = Self.thumbnail(from: source, maxPixelSize: maxPixelSize) else { return nil }
+        thumbnails.setObject(image, forKey: key)
+        return image
+    }
+
+    private static func thumbnail(from source: CGImageSource, maxPixelSize: CGFloat) -> UIImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
         guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        let image = UIImage(cgImage: cg)
-        thumbnails.setObject(image, forKey: key)
-        return image
+        return UIImage(cgImage: cg)
     }
 
     func delete(_ name: String) {

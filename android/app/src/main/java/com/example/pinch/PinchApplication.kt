@@ -10,10 +10,12 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.pinch.ai.AIAccount
+import com.example.pinch.ai.CookModeAI
 import com.example.pinch.data.PhotoStore
 import com.example.pinch.data.RecipeRepository
-import com.example.pinch.drive.DriveSync
+import com.example.pinch.sync.ServerSync
 import com.example.pinch.model.Recipe
+import com.example.pinch.model.RecipeItem
 import com.example.pinch.parsing.ParsedRecipe
 import com.example.pinch.scan.RecipeImporter
 import com.example.pinch.scan.WebRecipeImporter
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.io.File
 import java.lang.ref.WeakReference
 
@@ -42,9 +45,14 @@ class PinchApplication : Application() {
         container = AppContainer(this)
         // Fetch the document scanner in the background while online, so it's ready offline.
         runCatching { ModuleInstall.getClient(this).deferredInstall(DocumentScanner.client()) }
-        // Sync whenever the app comes to the foreground, if Drive is connected.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) = container.drive.syncIfConnected()
+            private var refresh: Job? = null
+            override fun onStart(owner: LifecycleOwner) {
+                refresh = container.scope.launch {
+                    while (true) { container.server.syncIfConnected(); delay(30_000) }
+                }
+            }
+            override fun onStop(owner: LifecycleOwner) { refresh?.cancel(); refresh = null }
         })
     }
 }
@@ -55,14 +63,14 @@ class AppContainer(context: Context) {
     val photos = PhotoStore(File(context.filesDir, "photos"))
     val repository = RecipeRepository(File(context.filesDir, "recipes"), photos, scope)
     val timers = TimerManager(context, scope)
-    val drive = DriveSync(context, repository, scope)
+    val server = ServerSync(context, repository, scope)
     val cooking = CookingSession()
-    val ai = AIAccount(context)
+    val ai = AIAccount(context, server::managedAIClient)
     val capture = CaptureSession(context, repository, ai, scope)
     val search = FuzzySearch()
 
     init {
-        repository.onLocalChange = { drive.scheduleSync() }
+        repository.onLocalChange = { server.scheduleSync() }
     }
 }
 
@@ -75,6 +83,7 @@ class CookingSession {
     private val done = mutableStateMapOf<String, Set<String>>()
     private val scales = mutableStateMapOf<String, Double>()
     private val stepIndex = mutableStateMapOf<String, Int>()
+    val ingredientMatches = mutableStateMapOf<CookModeAI.Input, List<List<RecipeItem>>>()
 
     fun isChecked(itemId: String, recipeId: String) = checked[recipeId]?.contains(itemId) == true
     fun toggleChecked(itemId: String, recipeId: String) {
@@ -203,7 +212,7 @@ class CaptureSession(
 
     /** Something new was shared in while a scan was still being reviewed: its pages go. */
     private fun discardUnsavedDraft() {
-        (_phase.value as? Phase.Reviewing)?.draft?.photos?.forEach(repository.photos::delete)
+        (_phase.value as? Phase.Reviewing)?.draft?.photoFiles?.forEach(repository.photos::delete)
     }
 
     /** Ends the flow, calling off any reading still going on. */

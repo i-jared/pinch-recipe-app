@@ -10,7 +10,6 @@ coroutines = "1.10.2"
 serialization = "1.9.0"
 mlkitText = "16.0.1"
 docScanner = "16.0.0"
-playServicesAuth = "21.5.1"
 coil = "2.7.0"
 exifinterface = "1.4.1"
 junit = "4.13.2"
@@ -35,7 +34,6 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitText" }
 mlkit-document-scanner = { group = "com.google.android.gms", name = "play-services-mlkit-document-scanner", version.ref = "docScanner" }
-play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 

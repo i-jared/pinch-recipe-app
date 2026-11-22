@@ -413,6 +413,14 @@ final class FuzzySearchTests: XCTestCase {
 }
 
 final class RecipeCodingTests: XCTestCase {
+    func testRecipePhotosAndBannerRoundTrip() throws {
+        let recipe = Recipe(photos: ["page.jpg"], recipePhotos: ["first.jpg", "second.jpg"], bannerPhoto: "second.jpg")
+        let decoded = try PinchJSON.decoder.decode(Recipe.self, from: PinchJSON.encoder.encode(recipe))
+        XCTAssertEqual(decoded.photos, ["page.jpg"])
+        XCTAssertEqual(decoded.recipePhotos, ["first.jpg", "second.jpg"])
+        XCTAssertEqual(decoded.bannerPhoto, "second.jpg")
+    }
+
     func testRoundTripKeepsEverything() throws {
         var recipe = SampleRecipes.sundaySauce
         recipe.lastCookedAt = Date(timeIntervalSince1970: 1_790_000_000.123)
@@ -437,6 +445,8 @@ final class RecipeCodingTests: XCTestCase {
         XCTAssertEqual(recipe.palette, .butter)
         XCTAssertEqual(recipe.pattern, .dots)
         XCTAssertEqual(recipe.emoji, "🍽️")
+        XCTAssertTrue(recipe.recipePhotos.isEmpty)
+        XCTAssertNil(recipe.bannerPhoto)
         XCTAssertEqual(PinchJSON.millis(recipe.updatedAt) % 1000, 511)
     }
 

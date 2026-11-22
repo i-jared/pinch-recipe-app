@@ -6,20 +6,22 @@ struct PinchApp: App {
     @State private var store: RecipeStore
     @State private var timers = TimerCenter()
     @State private var session = CookingSession()
-    @State private var drive: DriveSync
+    @State private var server: ServerSync
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let store = RecipeStore()
-        let drive = DriveSync(store: store)
-        store.didChangeLocally = { [weak drive] in drive?.scheduleSync() }
+        let server = ServerSync(store: store)
+        store.didChangeLocally = { [weak server] in server?.scheduleSync() }
         _store = State(initialValue: store)
-        _drive = State(initialValue: drive)
+        _server = State(initialValue: server)
         UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
 
+        #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-seedSamples"), store.recipes.isEmpty {
             SampleRecipes.all.forEach(store.save)
         }
+        #endif
     }
 
     var body: some Scene {
@@ -28,10 +30,17 @@ struct PinchApp: App {
                 .environment(store)
                 .environment(timers)
                 .environment(session)
-                .environment(drive)
+                .environment(server)
                 .tint(Theme.jadeDeep)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await drive.syncIfConnected() } }
+                    if phase == .active { Task { await server.syncIfConnected() } }
+                }
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                        await server.syncIfConnected()
+                    }
                 }
         }
     }
@@ -43,24 +52,29 @@ enum Route: Hashable {
 }
 
 struct RootView: View {
+    @Environment(ServerSync.self) private var server
     @State private var path: [Route] = []
+    @State private var linkError: String?
     @Namespace private var zoom
 
     var body: some View {
-        NavigationStack(path: $path) {
-            LibraryView(path: $path, zoom: zoom)
-                .navigationDestination(for: Route.self) { route in
-                    switch route {
-                    case .recipe(let id):
-                        RecipeDetailView(recipeID: id)
-                            .navigationTransition(.zoom(sourceID: id, in: zoom))
-                    case .settings:
-                        SettingsView()
+        @Bindable var server = server
+            NavigationStack(path: $path) {
+                LibraryView(path: $path, zoom: zoom)
+                    .navigationDestination(for: Route.self) { route in
+                        switch route {
+                        case .recipe(let id): RecipeDetailView(recipeID: id).navigationTransition(.zoom(sourceID: id, in: zoom))
+                        case .settings: SettingsView()
+                        }
                     }
-                }
-        }
-        // Ink bar buttons read on every cover color; sheets set their own jade tint.
-        .tint(Theme.ink)
+            }.tint(Theme.jadeDeep)
+            .onOpenURL { url in
+                guard url.scheme != ManagedAuthorization.scheme else { return }
+                do { server.pendingInvitation = try GroupInvitation.parse(url.absoluteString) }
+                catch { linkError = error.localizedDescription }
+            }
+            .sheet(item: $server.pendingInvitation) { JoinGroupSheet(invitation: $0) }
+            .alert("Couldn’t open invitation", isPresented: Binding(get: { linkError != nil }, set: { if !$0 { linkError = nil } })) { Button("OK") { linkError = nil } } message: { Text(linkError ?? "") }
     }
 }
 
@@ -73,6 +87,7 @@ final class CookingSession {
     private var done: [String: Set<String>] = [:]
     private var scales: [String: Double] = [:]
     private var stepIndex: [String: Int] = [:]
+    var ingredientMatches: [CookModeAI.Input: [[RecipeItem]]] = [:]
 
     func isChecked(_ itemID: String, in recipeID: String) -> Bool {
         checked[recipeID]?.contains(itemID) ?? false

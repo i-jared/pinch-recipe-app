@@ -3,6 +3,8 @@ package com.example.pinch.model
 import com.example.pinch.parsing.DurationParser
 import com.example.pinch.parsing.IngredientParser
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -28,10 +30,14 @@ data class RecipeItem(
 }
 
 /**
- * A saved recipe. Its JSON encoding is the on-disk and Google Drive format, shared with the
- * iOS app (see docs/recipe-format.md), so a Drive backup restores on either platform.
+ * A saved recipe. Its JSON encoding is the on-disk and server format, shared with the
+ * iOS app (see docs/recipe-format.md), so a server backup restores on either platform.
  */
 @Serializable
+data class RecipeOrigin(val groupId: String, val shareId: String, val groupName: String, val sharedBy: String)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class Recipe(
     val schema: Int = SCHEMA_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -53,15 +59,21 @@ data class Recipe(
     val pattern: CoverPattern = CoverPattern.GINGHAM,
     /** File names of scanned pages, in page order. */
     val photos: List<String> = emptyList(),
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val recipePhotos: List<String> = emptyList(),
+    val bannerPhoto: String? = null,
     val isFavorite: Boolean = false,
     @Serializable(with = InstantSerializer::class) val createdAt: Instant = Instant.now(),
     @Serializable(with = InstantSerializer::class) val updatedAt: Instant = createdAt,
     @Serializable(with = InstantSerializer::class) val lastCookedAt: Instant? = null,
     /** The text exactly as it was read from the scans, kept for search and re-parsing. */
     val rawText: String = "",
+    val origin: RecipeOrigin? = null,
     /** Set when deleted, so the deletion can sync to other devices. */
     @Serializable(with = InstantSerializer::class) val deletedAt: Instant? = null,
 ) {
+    val photoFiles: List<String> get() = photos + recipePhotos
+
     val isDeleted: Boolean get() = deletedAt != null
 
     val displayTitle: String get() = title.trim().ifEmpty { "Untitled recipe" }

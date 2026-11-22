@@ -43,6 +43,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -57,6 +59,8 @@ import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.CollectionsBookmark
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -104,12 +108,15 @@ import com.example.pinch.ui.LocalTransitionScopes
 import com.example.pinch.ui.capture.PasteRecipeDialog
 import com.example.pinch.ui.capture.WebRecipeDialog
 import com.example.pinch.ui.components.CoverArt
+import com.example.pinch.data.PhotoStore
 import com.example.pinch.ui.components.EmojiSticker
 import com.example.pinch.ui.components.PrimaryButton
 import com.example.pinch.ui.components.SoftButton
 import com.example.pinch.ui.components.TabChip
 import com.example.pinch.ui.components.TimerDock
 import com.example.pinch.ui.components.bottomFade
+import com.example.pinch.ui.groups.GroupsScreen
+import com.example.pinch.sync.ServerGroup
 import com.example.pinch.ui.theme.Pinch
 import com.example.pinch.ui.theme.base
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -133,7 +140,12 @@ fun LibraryScreen(
     onOpenRecipe: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenCapture: () -> Unit,
+    onOpenCookbook: (ServerGroup) -> Unit,
+    onConnect: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("library", android.content.Context.MODE_PRIVATE) }
+    var presentation by rememberSaveable { mutableStateOf(preferences.getString("presentation", "recipes") ?: "recipes") }
     val recipes by container.repository.recipes.collectAsState()
     val loaded by container.repository.loaded.collectAsState()
     val timers by container.timers.timers.collectAsState()
@@ -143,6 +155,7 @@ fun LibraryScreen(
     var showPaste by remember { mutableStateOf(false) }
     var showWeb by remember { mutableStateOf(false) }
     val aiKey by container.ai.apiKey.collectAsState()
+    val hosting by container.server.state.collectAsState()
     var pendingDelete by remember { mutableStateOf<Recipe?>(null) }
     val focus = LocalFocusManager.current
 
@@ -162,9 +175,15 @@ fun LibraryScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Header(count = recipes.size, onOpenSettings = onOpenSettings)
+                Header(count = recipes.size, presentation = presentation, onChangePresentation = {
+                    focus.clearFocus()
+                    presentation = it
+                    preferences.edit().putString("presentation", it).apply()
+                }, onOpenSettings = onOpenSettings)
             }
-            if (loaded && recipes.isEmpty()) {
+            if (presentation == "cookbooks") {
+                item(span = { GridItemSpan(maxLineSpan) }) { GroupsScreen(container, onOpenCookbook, onConnect) }
+            } else if (loaded && recipes.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     EmptyLibrary(onSample = { container.repository.saveAll(SampleRecipes.all()) })
                 }
@@ -191,6 +210,7 @@ fun LibraryScreen(
                     items(shown, key = { it.id }) { recipe ->
                         RecipeTin(
                             recipe = recipe,
+                            photos = container.photos,
                             onClick = { focus.clearFocus(); onOpenRecipe(recipe.id) },
                             onToggleFavorite = { container.repository.toggleFavorite(recipe.id) },
                             onDelete = { pendingDelete = recipe },
@@ -202,7 +222,7 @@ fun LibraryScreen(
                         item(span = { GridItemSpan(maxLineSpan) }) { NoResults(query) }
                     }
                     items(results, key = { it.recipe.id }, span = { GridItemSpan(maxLineSpan) }) { result ->
-                        SearchRow(result) { focus.clearFocus(); onOpenRecipe(result.recipe.id) }
+                        SearchRow(result, container.photos) { focus.clearFocus(); onOpenRecipe(result.recipe.id) }
                     }
                 }
             }
@@ -247,7 +267,7 @@ fun LibraryScreen(
 
     if (showWeb) {
         WebRecipeDialog(
-            aiConnected = aiKey != null,
+            aiConnected = hosting.managed || aiKey != null,
             onDismiss = { showWeb = false },
             onSubmit = { url ->
                 showWeb = false
@@ -272,7 +292,7 @@ fun LibraryScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete ${recipe.displayTitle}?") },
-            text = { Text("This removes it from this device and from Google Drive if you've connected it.") },
+            text = { Text(if (container.server.state.value.connected) "This removes it from your devices and your server backup. This also removes it from your cookbooks." else "This removes it from this device.") },
             confirmButton = {
                 TextButton(onClick = { container.repository.delete(recipe.id); pendingDelete = null }) {
                     Text("Delete recipe", color = Pinch.colors.cherry)
@@ -300,7 +320,7 @@ private fun filtered(recipes: List<Recipe>, filter: Filter, sort: Sort): List<Re
 }
 
 @Composable
-private fun Header(count: Int, onOpenSettings: () -> Unit) {
+private fun Header(count: Int, presentation: String, onChangePresentation: (String) -> Unit, onOpenSettings: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().statusBarsPadding().padding(top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -315,8 +335,16 @@ private fun Header(count: Int, onOpenSettings: () -> Unit) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = Pinch.colors.inkSoft,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Spacer(Modifier.width(8.dp))
+        Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            LibraryViewButton(Icons.Rounded.CollectionsBookmark, "Cookbooks", presentation == "cookbooks") { onChangePresentation("cookbooks") }
+            LibraryViewButton(Icons.Rounded.GridView, "All recipes", presentation == "recipes") { onChangePresentation("recipes") }
+        }
+        Spacer(Modifier.width(4.dp))
         Box(
             Modifier
                 .size(48.dp)
@@ -329,6 +357,17 @@ private fun Header(count: Int, onOpenSettings: () -> Unit) {
             Icon(Icons.Rounded.Settings, null, tint = Pinch.colors.ink)
         }
     }
+}
+
+@Composable
+private fun LibraryViewButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(CircleShape)
+            .background(if (selected) Pinch.colors.jade else Pinch.colors.sunken)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, null, tint = if (selected) Pinch.colors.onJade else Pinch.colors.ink) }
 }
 
 @Composable
@@ -415,7 +454,7 @@ private fun FilterBar(
 /** A recipe on the shelf: a patterned tin with a white label for the name. */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
-private fun RecipeTin(recipe: Recipe, onClick: () -> Unit, onToggleFavorite: () -> Unit, onDelete: () -> Unit) {
+internal fun RecipeTin(recipe: Recipe, onClick: () -> Unit, photos: PhotoStore? = null, onToggleFavorite: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     val scopes = LocalTransitionScopes.current
     val shape = RoundedCornerShape(22.dp)
@@ -425,20 +464,21 @@ private fun RecipeTin(recipe: Recipe, onClick: () -> Unit, onToggleFavorite: () 
                 .fillMaxWidth()
                 .aspectRatio(0.8f)
                 .clip(shape)
-                .combinedClickable(onClick = onClick, onLongClick = { menu = true }, role = Role.Button)
+                .combinedClickable(onClick = onClick, onLongClick = { if (onToggleFavorite != null || onDelete != null) menu = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = recipe.displayTitle + (recipe.displayTime?.let { ", $it" } ?: "") },
         ) {
             val cover = Modifier.fillMaxSize()
+            val banner = recipe.bannerPhoto?.let { photos?.file(it) }
             if (scopes != null) {
                 with(scopes.shared) {
                     CoverArt(
                         recipe.palette, recipe.pattern,
                         cover.sharedBounds(rememberSharedContentState("cover-${recipe.id}"), scopes.animated),
-                        cell = 20.dp,
+                        cell = 20.dp, photo = banner,
                     )
                 }
             } else {
-                CoverArt(recipe.palette, recipe.pattern, cover, cell = 20.dp)
+                CoverArt(recipe.palette, recipe.pattern, cover, cell = 20.dp, photo = banner)
             }
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
@@ -478,12 +518,12 @@ private fun RecipeTin(recipe: Recipe, onClick: () -> Unit, onToggleFavorite: () 
             }
         }
         DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = Pinch.colors.surface) {
-            DropdownMenuItem(
+            if (onToggleFavorite != null) DropdownMenuItem(
                 text = { Text(if (recipe.isFavorite) "Remove from favorites" else "Add to favorites") },
                 leadingIcon = { Icon(if (recipe.isFavorite) Icons.Rounded.FavoriteBorder else Icons.Rounded.Favorite, null) },
                 onClick = { onToggleFavorite(); menu = false },
             )
-            DropdownMenuItem(
+            if (onDelete != null) DropdownMenuItem(
                 text = { Text("Delete", color = Pinch.colors.cherry) },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Pinch.colors.cherry) },
                 onClick = { onDelete(); menu = false },
@@ -493,7 +533,7 @@ private fun RecipeTin(recipe: Recipe, onClick: () -> Unit, onToggleFavorite: () 
 }
 
 @Composable
-private fun SearchRow(result: FuzzySearch.Result, onClick: () -> Unit) {
+private fun SearchRow(result: FuzzySearch.Result, photos: PhotoStore, onClick: () -> Unit) {
     val recipe = result.recipe
     Row(
         Modifier
@@ -505,7 +545,7 @@ private fun SearchRow(result: FuzzySearch.Result, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-            CoverArt(recipe.palette, recipe.pattern, Modifier.fillMaxSize(), cell = 14.dp)
+            CoverArt(recipe.palette, recipe.pattern, Modifier.fillMaxSize(), cell = 14.dp, photo = recipe.bannerPhoto?.let(photos::file))
             Text(recipe.emoji, style = MaterialTheme.typography.headlineSmall)
         }
         Spacer(Modifier.width(14.dp))

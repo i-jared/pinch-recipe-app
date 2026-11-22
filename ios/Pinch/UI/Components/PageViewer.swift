@@ -3,13 +3,15 @@ import UIKit
 
 struct PageViewerItem: Identifiable {
     let index: Int
-    var id: Int { index }
+    var isRecipePhoto = false
+    var id: String { "\(isRecipePhoto)-\(index)" }
 }
 
-/// Full-screen scanned pages: swipe between them, pinch or double-tap to zoom.
+/// Swipe between images, pinch or double-tap to zoom.
 struct PageViewer: View {
     let photos: [String]
     let startIndex: Int
+    var isRecipePhoto = false
     @Environment(\.dismiss) private var dismiss
     @Environment(RecipeStore.self) private var store
     @State private var index = 0
@@ -19,7 +21,7 @@ struct PageViewer: View {
             Color.black.ignoresSafeArea()
             TabView(selection: $index) {
                 ForEach(Array(photos.enumerated()), id: \.offset) { i, name in
-                    ZoomableImage(image: store.photos.image(named: name))
+                    ZoomableImage(image: store.photos.image(named: name), label: isRecipePhoto ? "Recipe photo" : "Scanned page")
                         .ignoresSafeArea()
                         .tag(i)
                 }
@@ -28,7 +30,7 @@ struct PageViewer: View {
 
             HStack {
                 if photos.count > 1 {
-                    Text("Page \(index + 1) of \(photos.count)")
+                    Text("\(isRecipePhoto ? "Photo" : "Page") \(index + 1) of \(photos.count)")
                         .font(.rounded(.subheadline, .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
@@ -57,6 +59,7 @@ struct PageViewer: View {
 
 struct ZoomableImage: UIViewRepresentable {
     let image: UIImage?
+    var label = "Scanned page"
 
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
@@ -73,7 +76,7 @@ struct ZoomableImage: UIViewRepresentable {
         imageView.frame = scroll.bounds
         imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         imageView.isUserInteractionEnabled = true
-        imageView.accessibilityLabel = "Scanned page"
+        imageView.accessibilityLabel = label
         imageView.isAccessibilityElement = true
         scroll.addSubview(imageView)
         context.coordinator.imageView = imageView

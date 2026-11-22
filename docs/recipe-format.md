@@ -1,13 +1,12 @@
 # Recipe format
 
-Both apps store every recipe as one JSON file and sync those same files to Google Drive.
+Both apps store every recipe as one JSON file and sync that JSON to an optional self-hosted server.
 Because the format is shared, a recipe saved on an iPhone opens on an Android phone and
 the other way around.
 
 - iOS: `Application Support/Pinch/recipes/<id>.json` and `Application Support/Pinch/photos/`
 - Android: `files/recipes/<id>.json` and `files/photos/`
-- Google Drive: a **Pinch Recipes** folder holding one `<Title>.json` per recipe, plus a
-  **Photos** subfolder for scanned pages
+- Server: JSON recipe records and JPEG blobs in a persistent SQLite database, scoped to each account
 
 The Swift model is [`Recipe.swift`](../ios/Pinch/Model/Recipe.swift) and the Kotlin model is
 [`Recipe.kt`](../android/app/src/main/java/com/example/pinch/model/Recipe.kt). Tests on both
@@ -65,6 +64,8 @@ sides decode the other platform's output (`RecipeCodingTests`, `RecipeCodingTest
 | `palette` | string | `tomato`, `jade`, `butter`, `blueberry`, `plum`, `saffron`, `beet`, `sky`, `sage` or `cocoa`. |
 | `pattern` | string | `gingham`, `stripes`, `dots`, `waves` or `tiles`. |
 | `photos` | array of strings | Scanned page file names, in page order. |
+| `recipePhotos` | array of strings, optional | Attached recipe photo file names in gallery order. |
+| `bannerPhoto` | string, optional | File name from `recipePhotos` used as the banner. Omit to use the patterned cover. |
 | `isFavorite` | boolean | |
 | `createdAt`, `updatedAt` | string | ISO-8601 UTC with milliseconds. `updatedAt` decides sync conflicts. |
 | `lastCookedAt` | string, optional | Set when someone finishes cook mode or taps "Mark as cooked today". |
@@ -77,17 +78,40 @@ written by newer ones.
 
 ## How sync works
 
-There is no server. Each app talks to Google Drive directly with the `drive.file` scope, which
-only lets Pinch see files Pinch created.
+Both apps use the HTTPS API in [`backend/`](../backend/README.md). The server returns only the
+signed-in account's recipes, including tombstones. Clients upload scanned pages before their
+recipe. The later `updatedAt` wins the entire recipe; equal timestamps keep the server copy.
+Clients download missing pages before applying a remote recipe, and re-check local timestamps
+so an edit made during a request isn't overwritten.
 
-1. Find (or create) the **Pinch Recipes** folder and its **Photos** subfolder. Folders are
-   marked with `appProperties` (`pinchRoot`, `pinchPhotos`) so they're found even if renamed.
-2. List recipe files. Each carries `appProperties.recipeId` and `appProperties.updatedAt`
-   (milliseconds since 1970).
-3. For every recipe, the side with the newer `updatedAt` wins: upload the local file, or
-   download the remote one. Photos are uploaded once and downloaded when missing.
-4. Deleting a recipe keeps a small tombstone (`deletedAt` set, content cleared) that syncs like
-   any other edit, so the recipe disappears everywhere. Its photos are removed from Drive.
+Deleting a recipe keeps its tombstone so deletion reaches other devices and removes it from
+the owner's cookbooks. Cookbook entries refer to recipes in the owner's library; edits there
+appear in the cookbook. Saving someone else's cookbook recipe creates an independent personal copy.
 
-Sync runs when the app opens, a few seconds after each edit, and from **Sync now** in Settings.
-With no connection it simply waits for the next chance.
+Sync runs on foreground, every 30 seconds while active, two seconds after edits, and with **Back up now**. Failed attempts
+retry at the next foreground/edit/manual sync. This is sync, not a versioned archive; see
+[server backups](../backend/README.md#back-up-and-restore-the-server) for disaster recovery.
+
+Server requests validate schema 1, safe file names, dates and size limits; local readers remain
+lenient for older local files. OpenAPI documentation is served at `/docs`.
+
+### Cookbooks
+
+Both apps store cookbook JSON in `recipes/_cookbooks/<id>.json`. Each document has `id`,
+`name`, `updatedAt`, optional `deletedAt`, and `entries`. Each entry has `recipeId`, `updatedAt`
+and `removed`. Dates use the recipe format's millisecond precision. A recipe may belong to
+several cookbooks; removing an entry or deleting a cookbook preserves the personal recipe.
+
+Metadata uses the later timestamp. Entries merge independently, with removal winning ties,
+so an offline device cannot erase an editor's new contribution. Cookbook deletion is sticky.
+The server returns owner documents through `/v1/cookbooks`; collaborators receive permitted
+shared content instead. Adding as an editor copies the recipe into the owner's library and
+links it into the cookbook atomically. Copies are deduplicated across that owner's cookbooks.
+
+### Attribution for saved cookbook recipes
+
+`origin` is an optional object with `groupId`, `shareId`, `groupName` and `sharedBy`.
+It travels with the private recipe across devices so Pinch can show where a saved copy came
+from and reopen it instead of creating duplicates. These field names are retained for compatibility
+with older recipes. Cookbook responses strip this private tracking object. Removing a cookbook
+or entry does not remove the attribution or the saved personal recipe.

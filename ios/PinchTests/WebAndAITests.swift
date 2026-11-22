@@ -247,6 +247,41 @@ final class RecipeAITests: XCTestCase {
     }
 }
 
+final class CookModeAITests: XCTestCase {
+    private func input() throws -> CookModeAI.Input {
+        try XCTUnwrap(CookModeAI.Input(Recipe(
+            ingredients: [RecipeItem(text: "Dry ingredients", isHeader: true),
+                          RecipeItem(id: "flour-id", text: "2 cups flour"), RecipeItem(id: "salt-id", text: "1 tsp salt")],
+            steps: [RecipeItem(text: "For the dough", isHeader: true), RecipeItem(text: "Preheat the oven."),
+                    RecipeItem(text: "Mix the dry ingredients.")],
+            notes: "Only for my family"
+        )))
+    }
+
+    func testMatchesIndirectReferencesAndKeepsEmptySteps() throws {
+        let matches = try CookModeAI.decode(#"{"ingredientNumbersByStep":[[],[2,1,2]]}"#, for: input())
+        XCTAssertEqual(matches.map { $0.map(\.id) }, [[], ["flour-id", "salt-id"]])
+    }
+
+    func testRejectsIncompleteOrInvalidMatches() throws {
+        let input = try input()
+        XCTAssertThrowsError(try CookModeAI.decode(#"{"ingredientNumbersByStep":[[1]]}"#, for: input))
+        XCTAssertThrowsError(try CookModeAI.decode(#"{"ingredientNumbersByStep":[[],[3]]}"#, for: input))
+        XCTAssertThrowsError(try CookModeAI.decode(#"{"ingredientNumbersByStep":[[],["1"]]}"#, for: input))
+    }
+
+    func testPromptIncludesHeadingsAndOnlyNumberedRecipeLines() throws {
+        let prompt = try input().prompt()
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(prompt.utf8)) as? [String: [[String: Any]]])
+        XCTAssertEqual(Set(payload.keys), ["ingredients", "steps"])
+        XCTAssertEqual(payload["ingredients"]?.map { $0["number"] as? Int }, [nil, 1, 2])
+        XCTAssertEqual(payload["steps"]?.map { $0["number"] as? Int }, [nil, 1, 2])
+        XCTAssertTrue(prompt.contains("Dry ingredients"))
+        XCTAssertFalse(prompt.contains("flour-id"))
+        XCTAssertFalse(prompt.contains("Only for my family"))
+    }
+}
+
 final class OpenRouterClientTests: XCTestCase {
     func testStrictRequestBody() throws {
         let body = OpenRouterClient.requestBody(

@@ -102,7 +102,7 @@ sealed class WebImportException(message: String) : Exception(message) {
     data object NotFound : WebImportException("That page doesn't exist anymore. Check the address and try again.")
     data object NotAWebPage : WebImportException("That link isn't a web page Pinch can read.")
     data object NoRecipe : WebImportException("Couldn't find a recipe on that page. If you can see it in your browser, copy it and paste it in instead.")
-    data object NeedsAI : WebImportException("That page doesn't label its recipe, so Pinch needs AI reading to pick it out. Add an OpenRouter key in Settings, or copy the recipe and paste it in instead.")
+    data object NeedsAI : WebImportException("That page doesn’t have a recipe card Pinch can copy. Sign in to Pinch to read it, or copy and paste the recipe text.")
     data class Unreachable(val detail: String) : WebImportException("Couldn't open that page ($detail).")
 }
 

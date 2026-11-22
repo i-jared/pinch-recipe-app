@@ -1,12 +1,12 @@
 import Foundation
 import Security
 
-/// Minimal Keychain storage for secrets: the Google refresh token and the OpenRouter key.
+/// Minimal Keychain storage for secrets: server sessions and the OpenRouter key.
 /// Items stay on this device (not synced to other devices or restored from backups).
 enum Keychain {
-    static let googleService = "Pinch.GoogleDrive"
+    static let defaultService = "Pinch.Secrets"
 
-    static func save(_ value: String, for key: String, service: String = googleService) {
+    static func save(_ value: String, for key: String, service: String = defaultService) {
         delete(key, service: service)
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -18,7 +18,7 @@ enum Keychain {
         SecItemAdd(query as CFDictionary, nil)
     }
 
-    static func read(_ key: String, service: String = googleService) -> String? {
+    static func read(_ key: String, service: String = defaultService) -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -31,7 +31,7 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(_ key: String, service: String = googleService) {
+    static func delete(_ key: String, service: String = defaultService) {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,

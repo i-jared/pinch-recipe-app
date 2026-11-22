@@ -350,6 +350,7 @@ enum RecipeImporter {
             switch failure {
             case .offline: return "you're offline"
             case .invalidKey: return "OpenRouter didn't accept your key"
+            case .sessionExpired: return "your Pinch sign-in expired"
             case .noCredits: return "your OpenRouter account is out of credit"
             case .rateLimited: return "OpenRouter was busy"
             case .timedOut: return "the AI took too long"

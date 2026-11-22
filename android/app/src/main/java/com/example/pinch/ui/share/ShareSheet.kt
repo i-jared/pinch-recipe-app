@@ -37,6 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -72,6 +73,7 @@ import com.example.pinch.model.CoverPattern
 import com.example.pinch.model.Recipe
 import com.example.pinch.parsing.IngredientParser
 import com.example.pinch.ui.components.CoverArt
+import com.example.pinch.data.PhotoStore
 import com.example.pinch.ui.components.EmojiSticker
 import com.example.pinch.ui.components.PrimaryButton
 import com.example.pinch.ui.components.RichText
@@ -88,10 +90,11 @@ import java.io.File
 /** Preview of the card with a share button, so you see exactly what they'll get. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShareSheet(recipe: Recipe, scale: Double, onDismiss: () -> Unit) {
+fun ShareSheet(recipe: Recipe, scale: Double, photos: PhotoStore, onDismiss: () -> Unit) {
     val context = LocalContext.current
     var card by remember { mutableStateOf<Pair<Bitmap, File>?>(null) }
     var failed by remember { mutableStateOf(false) }
+    var banner by remember(recipe.bannerPhoto) { mutableStateOf<Bitmap?>(null) }
     val layer = rememberGraphicsLayer()
 
     ModalBottomSheet(
@@ -107,11 +110,14 @@ fun ShareSheet(recipe: Recipe, scale: Double, onDismiss: () -> Unit) {
         }) {
             CompositionLocalProvider(LocalDensity provides Density(3f, 1f), LocalPinchColors provides LightPinchColors) {
                 Box(Modifier.drawWithContent { layer.record { this@drawWithContent.drawContent() } }) {
-                    ShareCard(recipe, scale)
+                    ShareCard(recipe, scale, banner)
                 }
             }
         }
         LaunchedEffect(recipe) {
+            banner = withContext(Dispatchers.IO) {
+                recipe.bannerPhoto?.let { photos.loadBitmap(it, maxDimension = 1440) }
+            }
             withFrameNanos { }
             withFrameNanos { }
             card = runCatching {
@@ -126,7 +132,7 @@ fun ShareSheet(recipe: Recipe, scale: Double, onDismiss: () -> Unit) {
             Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Share as a picture", style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold), color = Pinch.colors.ink)
+            Text("Share recipe", style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold), color = Pinch.colors.ink)
             Spacer(Modifier.height(14.dp))
             Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), contentAlignment = Alignment.TopCenter) {
                 val shown = card
@@ -156,6 +162,11 @@ fun ShareSheet(recipe: Recipe, scale: Double, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 onClick = { card?.let { share(context, it.second, recipe.displayTitle) } },
             )
+            if (recipe.sourceUrl.startsWith("https://") || recipe.sourceUrl.startsWith("http://")) {
+                TextButton(onClick = {
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, recipe.sourceUrl), "Share recipe link"))
+                }) { Text("Share original link", color = Pinch.colors.jadeDeep) }
+            }
             Spacer(Modifier.height(12.dp))
         }
     }
@@ -186,13 +197,16 @@ private fun share(context: Context, file: File, title: String) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareCard(recipe: Recipe, scale: Double) {
+private fun ShareCard(recipe: Recipe, scale: Double, banner: Bitmap?) {
     val ink = Color(0xFF17332C)
     val inkSoft = Color(0xFF587068)
     val deep = recipe.palette.deep(dark = false)
     Column(Modifier.width(400.dp).background(Color.White)) {
         Box(Modifier.fillMaxWidth().height(168.dp)) {
             CoverArt(recipe.palette, recipe.pattern, Modifier.fillMaxWidth().height(168.dp), cell = 26.dp)
+            if (banner != null) {
+                Image(banner.asImageBitmap(), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+            }
             EmojiSticker(recipe.emoji, 88.dp, Modifier.align(Alignment.BottomStart).offset(x = 26.dp, y = 36.dp), tilt = -7f)
         }
         Column(Modifier.padding(start = 26.dp, end = 26.dp, top = 52.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {

@@ -1,0 +1,53 @@
+services:
+  pinch:
+    build: .
+    restart: unless-stopped
+    environment:
+      PINCH_REGISTRATION_KEY: ${PINCH_REGISTRATION_KEY:-}
+      PINCH_USER_QUOTA_MB: ${PINCH_USER_QUOTA_MB:-1024}
+      PINCH_PUBLIC_URL: ${PINCH_PUBLIC_URL:-}
+      PINCH_MANAGED_URL: ${PINCH_MANAGED_URL:-}
+      PINCH_MANAGED_OPENROUTER_KEY: ${PINCH_MANAGED_OPENROUTER_KEY:-}
+      PINCH_MANAGED_MODEL: ${PINCH_MANAGED_MODEL:-deepseek/deepseek-v4.1-flash}
+      PINCH_MANAGED_AI_PER_ACCOUNT: ${PINCH_MANAGED_AI_PER_ACCOUNT:-30}
+      PINCH_MANAGED_AI_PER_DAY: ${PINCH_MANAGED_AI_PER_DAY:-300}
+      PINCH_ROOT_PATH: ${PINCH_ROOT_PATH:-}
+      PINCH_TRUSTED_PROXY_IPS: ${PINCH_TRUSTED_PROXY_IPS:-}
+      PINCH_MAX_UPLOADS: ${PINCH_MAX_UPLOADS:-2}
+      PINCH_UPLOAD_IDLE_SECONDS: ${PINCH_UPLOAD_IDLE_SECONDS:-15}
+      PINCH_UPLOAD_TOTAL_SECONDS: ${PINCH_UPLOAD_TOTAL_SECONDS:-180}
+      PINCH_OAUTH_REDIRECT_URIS: ${PINCH_OAUTH_REDIRECT_URIS:-}
+      PINCH_OPENAI_CHALLENGE: ${PINCH_OPENAI_CHALLENGE:-}
+    ports:
+      - "127.0.0.1:8787:8000"
+    volumes:
+      - pinch-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  https:
+    image: caddy:2-alpine
+    profiles: [https]
+    restart: unless-stopped
+    depends_on:
+      pinch:
+        condition: service_healthy
+    environment:
+      PINCH_DOMAIN: ${PINCH_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  pinch-data:
+  caddy-data:
+  caddy-config:

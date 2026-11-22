@@ -8,6 +8,7 @@ struct CaptureFlowView: View {
     let onFinish: (String?) -> Void
 
     @Environment(RecipeStore.self) private var store
+    @Environment(ServerSync.self) private var server
     @AppStorage(AppSettings.smartParsingKey) private var smartParsing = true
 
     private enum Phase {
@@ -61,7 +62,7 @@ struct CaptureFlowView: View {
                             onFinish(saved.id)
                         },
                         onCancel: { discarded in
-                            discarded.photos.forEach(store.photos.delete)
+                            discarded.photoFiles.forEach(store.photos.delete)
                             onFinish(nil)
                         }
                     )
@@ -95,7 +96,7 @@ struct CaptureFlowView: View {
                 open(url)
                 return
             }
-            let ai = AIAccount.shared.client
+            let ai = server.aiClient
             phase = .reading(ai != nil ? .aiReading(.text) : .tidying, [])
             work = Task {
                 do {
@@ -129,7 +130,7 @@ struct CaptureFlowView: View {
 
     private func read(_ images: [UIImage]) {
         phase = .reading(.reading(page: 1, of: images.count), images)
-        let ai = AIAccount.shared.client
+        let ai = server.aiClient
         work = Task {
             do {
                 let result = try await RecipeImporter.importPages(images, photos: store.photos, ai: ai, smartParsing: smartParsing) { stage in
@@ -146,7 +147,7 @@ struct CaptureFlowView: View {
 
     private func open(_ url: URL) {
         phase = .reading(.fetching(host: RecipeImporter.displayHost(url)), [])
-        let ai = AIAccount.shared.client
+        let ai = server.aiClient
         work = Task {
             do {
                 let result = try await RecipeImporter.importURL(url, ai: ai) { stage in

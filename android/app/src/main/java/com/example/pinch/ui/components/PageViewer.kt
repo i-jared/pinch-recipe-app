@@ -44,19 +44,19 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import java.io.File
 
-/** Full-screen scanned pages: swipe between them, pinch or double-tap to zoom. */
+/** Swipe between images, pinch or double-tap to zoom. */
 @Composable
-fun PageViewerDialog(files: List<File>, start: Int, onDismiss: () -> Unit) {
+fun PageViewerDialog(files: List<File>, start: Int, isRecipePhoto: Boolean = false, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val pager = rememberPagerState(initialPage = start.coerceIn(0, (files.size - 1).coerceAtLeast(0))) { files.size }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                ZoomableImage(files[page])
+                ZoomableImage(files[page], if (isRecipePhoto) "Recipe photo" else "Scanned page")
             }
             Row(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (files.size > 1) {
                     Text(
-                        "Page ${pager.currentPage + 1} of ${files.size}",
+                        "${if (isRecipePhoto) "Photo" else "Page"} ${pager.currentPage + 1} of ${files.size}",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.White,
                         modifier = Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 14.dp, vertical = 9.dp),
@@ -74,7 +74,7 @@ fun PageViewerDialog(files: List<File>, start: Int, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ZoomableImage(file: File) {
+private fun ZoomableImage(file: File, description: String) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val state = rememberTransformableState { zoom, pan, _ ->
@@ -83,7 +83,7 @@ private fun ZoomableImage(file: File) {
     }
     AsyncImage(
         model = file,
-        contentDescription = "Scanned page",
+        contentDescription = description,
         contentScale = ContentScale.Fit,
         modifier = Modifier
             .fillMaxSize()

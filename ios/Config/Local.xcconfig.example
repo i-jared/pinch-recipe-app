@@ -1,4 +1,3 @@
 // Copy to Local.xcconfig (git-ignored) and fill in.
 PINCH_BUNDLE_ID = com.yourname.pinch
 PINCH_DEVELOPMENT_TEAM = ABCDE12345
-GOOGLE_IOS_CLIENT_ID = 1234567890-abc123def456.apps.googleusercontent.com

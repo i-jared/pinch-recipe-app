@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pinch · Your recipe box</title>
+  <style>
+    :root{color-scheme:light dark;--paper:#faf8f1;--card:#fffdf8;--ink:#193f34;--muted:#607267;--jade:#216449;--line:#d9e1d6;--butter:#f7efcc}
+    *{box-sizing:border-box}body{margin:0;background:var(--color-background-primary,var(--paper));color:var(--color-text-primary,var(--ink));font:15px/1.55 system-ui,-apple-system,sans-serif}
+    main{max-width:960px;margin:auto;padding:26px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:22px}
+    .brand{font:36px Georgia,serif;letter-spacing:-1.5px}.eyebrow{font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:var(--muted)}h1{font:clamp(29px,5vw,42px)/1.15 Georgia,serif;letter-spacing:-1px;margin:9px 0 18px}h2{font:25px Georgia,serif;margin:26px 0 12px}p{margin:8px 0 16px}
+    button,input{font:inherit;border:1px solid var(--line);border-radius:10px}button{cursor:pointer;padding:10px 15px;background:var(--card);color:var(--ink)}button:hover{border-color:var(--jade)}button:focus-visible,input:focus-visible{outline:3px solid #b3cf7e;outline-offset:3px}button:disabled{opacity:.5;cursor:wait}
+    #search{display:flex;gap:8px;margin-bottom:18px}input[type=search]{min-width:0;flex:1;padding:12px;background:var(--card);color:var(--ink)}.primary{background:var(--jade);color:white;border-color:var(--jade)}#favorites[aria-pressed=true]{background:var(--butter)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:16px}.card{padding:0;overflow:hidden;text-align:left;display:flex;flex-direction:column;border-radius:14px;min-height:205px}.cover{height:78px;display:grid;place-items:center;width:100%;font-size:30px;background-color:#d7e5d5;background-image:linear-gradient(90deg,#ffffff55 50%,transparent 50%),linear-gradient(#ffffff55 50%,transparent 50%);background-size:26px 26px}.card:nth-child(3n+2) .cover{background-color:#f0d9ac}.card:nth-child(3n+3) .cover{background-color:#e6c8bb}.card-body{padding:16px;width:100%}.card-title{font:23px/1.2 Georgia,serif;margin-bottom:9px}.meta{color:var(--muted);font-size:12px}.star{color:#a83a41;margin-right:4px}#status{color:var(--muted);min-height:24px;margin:12px 0}#status.error{color:#b93b44}#pagination{display:flex;justify-content:space-between;align-items:center;margin-top:20px}
+    .recipe-top{display:flex;justify-content:space-between;align-items:start;gap:15px}.recipe-top h1{margin-top:16px}.info{display:flex;flex-wrap:wrap;gap:12px 26px;padding:18px;background:var(--butter);border-radius:12px;margin:18px 0}.info span{display:block}.info b{font-size:11px;text-transform:uppercase;letter-spacing:1px}.columns{display:grid;grid-template-columns:1fr 1.4fr;gap:35px}.ingredients{list-style:none;padding:0}.ingredients li{padding:9px 0;border-bottom:1px solid var(--line)}.ingredients label{display:flex;gap:10px;align-items:baseline;cursor:pointer}.ingredients input:checked+span{text-decoration:line-through;color:var(--muted)}.steps{padding-left:23px}.steps li{padding:0 0 16px 7px;white-space:pre-wrap}.section-label{font-weight:700;list-style:none;margin:15px 0 5px}.notes{white-space:pre-wrap;padding:20px;background:var(--butter);border-radius:12px}a{color:var(--jade)}[hidden]{display:none!important}.empty{padding:30px 0}.footnote{font-size:12px;color:var(--muted);margin-top:24px}
+    @media(prefers-color-scheme:dark){:root{--paper:#16261f;--card:#20362b;--ink:#f1f1e5;--muted:#b7c6b9;--jade:#327b58;--line:#3a5142;--butter:#383c27}.cover{filter:brightness(.75)}}
+    @media(max-width:560px){main{padding:18px}.columns{grid-template-columns:1fr;gap:0}#search{flex-wrap:wrap}input[type=search]{flex-basis:70%}.grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}.card-title{font-size:20px}.brand{font-size:30px}.eyebrow{font-size:9px}}
+  </style>
+</head>
+<body>
+<main>
+  <header><div class="brand">Pinch<span aria-hidden="true">✳</span></div><div class="eyebrow">Your recipe box</div></header>
+  <section id="library" aria-label="Recipe library">
+    <div class="eyebrow">Saved for a good meal</div><h1>What sounds good?</h1>
+    <form id="search"><input id="query" type="search" aria-label="Search recipes" placeholder="A dish, an ingredient, a little inspiration…"><button class="primary" type="submit">Search</button><button id="favorites" type="button" aria-pressed="false">♡ Favorites</button></form>
+    <div id="cards" class="grid"></div><div id="pagination" hidden><button id="previous">← Previous</button><span id="count" class="meta"></span><button id="next">Next →</button></div>
+  </section>
+  <article id="detail" hidden></article>
+  <div id="status" role="status" aria-live="polite">Connecting to your recipe box…</div>
+  <p class="footnote">Recipes from your connected Pinch account. Sync your phone to bring new recipes to the table.</p>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const pending = new Map();
+  let requestId = 0, offset = 0, nextOffset = null, favorites = false, current = null, busy = false, initialized = false;
+  let searchVersion = 0;
+  const notify = (method, params) => window.parent.postMessage({jsonrpc:'2.0',method,params}, '*');
+  function request(method, params) {
+    const id = ++requestId;
+    return new Promise((resolve,reject) => {
+      const timer = setTimeout(() => {pending.delete(id);reject(new Error('Pinch did not respond. Try again.'));},30000);
+      pending.set(id,{resolve,reject,timer});
+      window.parent.postMessage({jsonrpc:'2.0',id,method,params}, '*');
+    });
+  }
+  function status(message, error=false) {$('status').textContent=message;$('status').classList.toggle('error',error);}
+  function element(tag, text, className) {const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(className)e.className=className;return e;}
+  async function call(name, args) {
+    const result = await request('tools/call',{name,arguments:args});
+    if(result.isError) throw new Error(result.content?.find(c=>c.type==='text')?.text || 'Pinch could not finish that action.');
+    if(!result.structuredContent) throw new Error('Pinch returned an empty response. Try again.');
+    return result.structuredContent;
+  }
+  function renderList(data) {
+    current=null;$('library').hidden=false;$('detail').hidden=true;$('cards').replaceChildren();
+    nextOffset=data.next_offset??null;
+    for(const recipe of data.recipes || []) {
+      const card=element('button',undefined,'card');card.type='button';card.setAttribute('aria-label','Open '+recipe.title);
+      const cover=element('div',recipe.emoji||'🍽️','cover');cover.setAttribute('aria-hidden','true');
+      const body=element('div',undefined,'card-body');
+      body.append(element('div',(recipe.isFavorite?'♥ ':'')+recipe.title,'card-title'));
+      body.append(element('div',[recipe.totalTime||recipe.cookTime,recipe.servings].filter(Boolean).join(' · ')||'Ready when you are','meta'));
+      card.append(cover,body);card.onclick=()=>openRecipe(recipe.id);$('cards').append(card);
+    }
+    if(!data.recipes?.length) $('cards').append(element('p',data.total?'No recipes on this page.':'No recipes found. Try another search, or sync your Pinch library.','empty'));
+    $('pagination').hidden=!data.total;$('previous').disabled=offset===0;$('next').disabled=nextOffset===null;
+    $('count').textContent=data.total?`${offset+1}–${offset+(data.recipes?.length||0)} of ${data.total}`:'';
+    status('');resize();
+  }
+  async function search(newOffset=0) {
+    const version=++searchVersion;offset=newOffset;status('Finding something good…');
+    try {const data=await call('search_recipes',{query:$('query').value,favorites_only:favorites,offset,limit:20});if(version===searchVersion)renderList(data);}
+    catch(error){if(version===searchVersion)status(error.message,true);}
+  }
+  async function openRecipe(id) {
+    if(busy)return;busy=true;status('Opening recipe…');++searchVersion;
+    try {const data=await call('get_recipe',{recipe_id:id});renderRecipe(data.recipe);await request('ui/update-model-context',{content:[{type:'text',text:'The user is viewing Pinch recipe '+data.recipe.id+': '+data.recipe.title}]});}
+    catch(error){status(error.message,true);}finally{busy=false;}
+  }
+  function renderRecipe(recipe) {
+    current=recipe;$('library').hidden=true;$('detail').hidden=false;
+    const root=$('detail');root.replaceChildren();const back=element('button','← Recipe box');back.onclick=()=>search(offset);root.append(back);
+    const top=element('div',undefined,'recipe-top');top.append(element('h1',recipe.title));
+    const favorite=element('button',recipe.isFavorite?'♥ Saved':'♡ Favorite');favorite.setAttribute('aria-pressed',String(recipe.isFavorite));
+    favorite.onclick=async()=>{favorite.disabled=true;try{const data=await call('set_recipe_favorite',{recipe_id:recipe.id,favorite:!recipe.isFavorite});renderRecipe(data.recipe);}catch(error){status(error.message,true);favorite.disabled=false;}};
+    top.append(favorite);root.append(top);if(recipe.summary)root.append(element('p',recipe.summary));
+    const info=element('div',undefined,'info');for(const [label,value] of [['Servings',recipe.servings],['Prep',recipe.prepTime],['Cook',recipe.cookTime],['Total',recipe.totalTime]])if(value){const block=element('div');block.append(element('b',label),element('span',value));info.append(block);}if(info.childNodes.length)root.append(info);
+    const columns=element('div',undefined,'columns'), left=element('section'),right=element('section');left.append(element('h2','Ingredients'));right.append(element('h2','At the stove'));
+    const ingredients=element('ul',undefined,'ingredients');for(const item of recipe.ingredients||[]){const li=element('li');if(item.isHeader){li.textContent=item.text;li.className='section-label';}else{const label=element('label');const check=element('input');check.type='checkbox';label.append(check,element('span',item.text));li.append(label);}ingredients.append(li);}left.append(ingredients);
+    const steps=element('ol',undefined,'steps');for(const item of recipe.steps||[]){const li=element('li',item.text);if(item.isHeader)li.className='section-label';steps.append(li);}right.append(steps);columns.append(left,right);root.append(columns);
+    if(recipe.notes){root.append(element('h2','Kitchen notes'),element('div',recipe.notes,'notes'));}
+    if(recipe.source||recipe.sourceUrl){const source=element('p',recipe.source||'Recipe source','meta');if(recipe.sourceUrl){try{const url=new URL(recipe.sourceUrl);if(['https:','http:'].includes(url.protocol)&&!url.username&&!url.password){const link=element('button','Open source');link.onclick=()=>request('ui/open-link',{url:url.href}).catch(e=>status(e.message,true));source.append(document.createTextNode(' · '),link);}}catch{}}root.append(source);}
+    status('');resize();
+  }
+  function resize(){notify('ui/notifications/size-changed',{height:document.documentElement.scrollHeight});}
+  function hostContext(context){if(context?.theme)document.documentElement.style.colorScheme=context.theme;const vars=context?.styles?.variables;for(const [key,value] of Object.entries(vars||{}))if(key.startsWith('--')&&typeof value==='string')document.documentElement.style.setProperty(key,value);}
+  window.addEventListener('message',event=>{
+    if(event.source!==window.parent||!event.data||event.data.jsonrpc!=='2.0')return;
+    const msg=event.data;
+    if(pending.has(msg.id)){const p=pending.get(msg.id);clearTimeout(p.timer);pending.delete(msg.id);if(msg.error)p.reject(new Error(msg.error.message||'The host could not complete this action.'));else p.resolve(msg.result);return;}
+    if(msg.method==='ui/notifications/tool-result'&&msg.params?.structuredContent?.recipes&&searchVersion<=1&&!current){offset=0;renderList(msg.params.structuredContent);}
+    if(msg.method==='ui/notifications/host-context-changed')hostContext(msg.params);
+    if(msg.method==='ui/resource-teardown'){for(const p of pending.values()){clearTimeout(p.timer);p.reject(new Error('Pinch closed.'));}pending.clear();window.parent.postMessage({jsonrpc:'2.0',id:msg.id,result:{}},'*');}
+  });
+  $('search').onsubmit=event=>{event.preventDefault();search();};
+  $('favorites').onclick=()=>{favorites=!favorites;$('favorites').setAttribute('aria-pressed',String(favorites));search();};
+  $('previous').onclick=()=>search(Math.max(0,offset-20));$('next').onclick=()=>{if(nextOffset!==null)search(nextOffset);};
+  request('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Pinch',version:'1.0.0'},appCapabilities:{availableDisplayModes:['inline','fullscreen']}}).then(result=>{
+    initialized=true;hostContext(result.hostContext);notify('ui/notifications/initialized',{});if(!$('cards').childNodes.length)search();
+  }).catch(error=>status(error.message,true));
+  new ResizeObserver(()=>{if(initialized)resize();}).observe(document.querySelector('main'));
+})();
+</script>
+</body>
+</html>

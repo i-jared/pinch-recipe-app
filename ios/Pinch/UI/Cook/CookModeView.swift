@@ -8,8 +8,11 @@ struct CookModeView: View {
     @Environment(CookingSession.self) private var session
     @Environment(TimerCenter.self) private var timers
     @Environment(RecipeStore.self) private var store
+    @Environment(ServerSync.self) private var server
+    @AppStorage(AIConfig.cookModeKey) private var matchCookModeIngredients = false
     @State private var index = 0
     @State private var showIngredients = false
+    @State private var matchingFailed = false
 
     private struct Entry: Identifiable {
         let item: RecipeItem
@@ -36,14 +39,24 @@ struct CookModeView: View {
 
     var body: some View {
         let entries = entries
+        let client = server.isManaged || matchCookModeIngredients ? server.aiClient : nil
+        let input = client == nil ? nil : CookModeAI.Input(recipe)
+        let matches = input.flatMap { session.ingredientMatches[$0] }
         VStack(spacing: 0) {
             topBar(total: entries.count)
             progress(total: entries.count)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
+            if index < entries.count, input != nil, matches == nil {
+                Text(matchingFailed ? "AI matching unavailable. Using on-device matches." : "Matching ingredients…")
+                    .font(.rounded(.caption))
+                    .foregroundStyle(Theme.inkSoft)
+                    .padding(.horizontal, 20)
+            }
             TabView(selection: $index) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { i, entry in
-                    CookStepPage(recipe: recipe, entry: entry.item, number: entry.number, heading: entry.heading)
+                    CookStepPage(recipe: recipe, entry: entry.item, number: entry.number, heading: entry.heading,
+                                 matchedIngredients: matches?[i])
                         .tag(i)
                 }
                 FinishedPage(recipe: recipe) {
@@ -64,6 +77,17 @@ struct CookModeView: View {
             .padding(.bottom, 8)
         }
         .background(recipe.palette.tint.ignoresSafeArea())
+        .task(id: input) {
+            matchingFailed = false
+            guard let input, let client, session.ingredientMatches[input] == nil else { return }
+            do {
+                let matches = try await CookModeAI.match(input, using: client)
+                try Task.checkCancellation()
+                session.ingredientMatches[input] = matches
+            } catch {
+                if !Task.isCancelled { matchingFailed = true }
+            }
+        }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             index = min(session.currentStep(for: recipe.id), entries.count)
@@ -175,13 +199,14 @@ private struct CookStepPage: View {
     let entry: RecipeItem
     let number: Int
     let heading: String?
+    let matchedIngredients: [RecipeItem]?
 
     @Environment(TimerCenter.self) private var timers
     @Environment(CookingSession.self) private var session
 
     var body: some View {
         let durations = DurationParser.matches(in: entry.text)
-        let uses = StepIngredients.matching(entry.text, in: recipe)
+        let uses = matchedIngredients ?? StepIngredients.matching(entry.text, in: recipe)
         let scale = session.scale(for: recipe.id)
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {

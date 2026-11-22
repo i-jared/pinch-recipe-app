@@ -45,6 +45,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CollectionsBookmark
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EditNote
@@ -103,6 +104,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.pinch.AppContainer
 import com.example.pinch.CookingSession
+import com.example.pinch.data.PhotoStore
 import com.example.pinch.model.CoverPalette
 import com.example.pinch.model.Recipe
 import com.example.pinch.parsing.DurationParser
@@ -122,6 +124,12 @@ import com.example.pinch.ui.components.TimerDock
 import com.example.pinch.ui.components.bottomFade
 import com.example.pinch.ui.components.rememberNotificationPermissionRequest
 import com.example.pinch.ui.share.ShareSheet
+import com.example.pinch.ui.groups.AddToCookbooksSheet
+import com.example.pinch.ui.groups.rememberGroupWork
+import com.example.pinch.ui.groups.Feedback
+import com.example.pinch.ui.components.SoftButton
+import com.example.pinch.sync.SharedRecipe
+import com.example.pinch.sync.ServerGroup
 import com.example.pinch.ui.theme.Pinch
 import com.example.pinch.ui.theme.base
 import com.example.pinch.ui.theme.deep
@@ -133,10 +141,12 @@ import java.time.format.FormatStyle
 
 @OptIn(ExperimentalSharedTransitionApi::class, ExperimentalLayoutApi::class)
 @Composable
-fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, onCook: () -> Unit, onEdit: () -> Unit) {
+fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, onCook: () -> Unit, onEdit: () -> Unit,
+    previewRecipe: Recipe? = null, sharedItem: SharedRecipe? = null, sharedGroup: ServerGroup? = null,
+    onOpenCopy: (String) -> Unit = {}, onOpenGroup: (String) -> Unit = {}) {
     val recipe by container.repository.observe(recipeId).collectAsState(initial = container.repository.recipe(recipeId))
     val timers by container.timers.timers.collectAsState()
-    val current = recipe
+    val current = previewRecipe ?: recipe
     if (current == null) {
         LaunchedEffect(Unit) { onBack() }
         return
@@ -148,11 +158,18 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
     val scrolledPastHero by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > with(density) { (heroHeight - 90.dp).toPx() } }
     }
+    val groups = com.example.pinch.ui.groups.cookbookList(container)
+    val library by container.repository.recipes.collectAsState()
+    val work = rememberGroupWork()
+    var notice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) { if (notice != null) { kotlinx.coroutines.delay(3000); notice = null } }
+    var showCookbooks by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(sharedItem) { if (sharedItem == null && container.server.state.value.connected) { work.run { container.server.loadGroups() } } }
     var menu by remember { mutableStateOf(false) }
     var showShare by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var keepAwake by rememberSaveable { mutableStateOf(false) }
-    var viewer by remember { mutableStateOf<Int?>(null) }
+    var viewer by remember { mutableStateOf<ViewedPhoto?>(null) }
     val haptics = LocalHapticFeedback.current
     val askForNotifications = rememberNotificationPermissionRequest()
     val view = LocalView.current
@@ -167,12 +184,13 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                 val scopes = LocalTransitionScopes.current
                 Box(Modifier.fillMaxWidth().height(heroHeight)) {
                     val cover = Modifier.fillMaxSize()
+                    val banner = current.bannerPhoto?.let(container.photos::file)
                     if (scopes != null) {
                         with(scopes.shared) {
-                            CoverArt(current.palette, current.pattern, cover.sharedBounds(rememberSharedContentState("cover-${current.id}"), scopes.animated), cell = 28.dp)
+                            CoverArt(current.palette, current.pattern, cover.sharedBounds(rememberSharedContentState("cover-${current.id}"), scopes.animated), cell = 28.dp, photo = banner)
                         }
                     } else {
-                        CoverArt(current.palette, current.pattern, cover, cell = 28.dp)
+                        CoverArt(current.palette, current.pattern, cover, cell = 28.dp, photo = banner)
                     }
                     EmojiSticker(current.emoji, 96.dp, Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 52.dp), tilt = -7f)
                 }
@@ -188,6 +206,25 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                     verticalArrangement = Arrangement.spacedBy(30.dp),
                 ) {
                     TitleBlock(current)
+                    if (sharedItem != null && sharedGroup != null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Shared by ${sharedItem.sharedBy} · ${sharedGroup.name}", style = MaterialTheme.typography.titleSmall, color = Pinch.colors.jadeDeep)
+                            val copyId = library.firstOrNull { it.origin?.shareId == sharedItem.id }?.id
+                            if (copyId != null) SoftButton("Saved · Open my copy", { onOpenCopy(copyId) }, icon = Icons.Rounded.Check)
+                            else SoftButton("Save to my recipes", { work.run { container.server.saveCopy(sharedItem, sharedGroup) } }, icon = Icons.Rounded.Add, enabled = !work.busy)
+                            Feedback(work)
+                        }
+                    } else {
+                        val sharedWith = groups.filter { current.id in it.mySharedRecipeIds }
+                        if (sharedWith.isNotEmpty()) {
+                            Column {
+                                sharedWith.forEach { group -> TextButton(onClick = { onOpenGroup(group.id) }) { Icon(Icons.Rounded.CollectionsBookmark, null); Spacer(Modifier.width(8.dp)); Text("In ${group.name}") } }
+                                TextButton(onClick = { showCookbooks = true }) { Text("Add to another cookbook") }
+                            }
+                        }
+                        current.origin?.let { Text("From ${it.sharedBy} · ${it.groupName}", color = Pinch.colors.inkSoft) }
+                        notice?.let { Text(it, color = Pinch.colors.jadeDeep) }
+                    }
                     IngredientsCard(current, session)
                     StepsList(current, session) { seconds, label ->
                         askForNotifications()
@@ -195,24 +232,11 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
                     if (current.notes.isNotBlank()) NotesCard(current.notes)
-                    if (current.photos.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            SectionHeading(if (current.photos.size == 1) "Original page" else "Original pages")
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                itemsIndexed(current.photos) { index, name ->
-                                    AsyncImage(
-                                        model = container.photos.file(name),
-                                        contentDescription = "Open page ${index + 1}",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(110.dp, 146.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .border(1.dp, Pinch.colors.line, RoundedCornerShape(14.dp))
-                                            .clickable { viewer = index },
-                                    )
-                                }
-                            }
-                        }
+                    PhotoStrip(container.photos, current.recipePhotos, "Recipe photos", isRecipePhoto = true) {
+                        viewer = ViewedPhoto(it, isRecipePhoto = true)
+                    }
+                    PhotoStrip(container.photos, current.photos, if (current.photos.size == 1) "Original page" else "Original pages") {
+                        viewer = ViewedPhoto(it)
                     }
                     Footer(current)
                 }
@@ -244,7 +268,7 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                 )
             }
             if (!scrolledPastHero) Spacer(Modifier.weight(1f))
-            BarButton(
+            if (sharedItem == null) { BarButton(
                 if (current.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 if (current.isFavorite) "Remove from favorites" else "Add to favorites",
                 tint = if (current.isFavorite) Pinch.colors.cherry else Pinch.colors.ink,
@@ -253,19 +277,22 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
             Spacer(Modifier.width(8.dp))
-            BarButton(Icons.Rounded.Share, "Share recipe card") { showShare = true }
+            BarButton(Icons.Rounded.CollectionsBookmark, "Add to cookbook") { showCookbooks = true }
+            Spacer(Modifier.width(8.dp))
+            BarButton(Icons.Rounded.Share, "Share recipe") { showShare = true }
+            }
             Spacer(Modifier.width(8.dp))
             Box {
                 BarButton(Icons.Rounded.MoreVert, "More") { menu = true }
                 DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = Pinch.colors.surface) {
-                    DropdownMenuItem(text = { Text("Edit recipe") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onEdit() })
+                    if (sharedItem == null) DropdownMenuItem(text = { Text("Edit recipe") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onEdit() })
                     DropdownMenuItem(
                         text = { Text("Keep screen on") },
                         leadingIcon = { Icon(Icons.Rounded.WbSunny, null) },
                         trailingIcon = { if (keepAwake) Icon(Icons.Rounded.Check, null, tint = Pinch.colors.jadeDeep) },
                         onClick = { keepAwake = !keepAwake; menu = false },
                     )
-                    DropdownMenuItem(text = { Text("Mark as cooked today") }, leadingIcon = { Icon(Icons.Rounded.Verified, null) }, onClick = {
+                    if (sharedItem == null) DropdownMenuItem(text = { Text("Mark as cooked today") }, leadingIcon = { Icon(Icons.Rounded.Verified, null) }, onClick = {
                         menu = false
                         container.repository.markCooked(current.id)
                     })
@@ -276,7 +303,7 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
                         })
                     }
                     HorizontalDivider(color = Pinch.colors.line)
-                    DropdownMenuItem(
+                    if (sharedItem == null) DropdownMenuItem(
                         text = { Text("Delete recipe", color = Pinch.colors.cherry) },
                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = Pinch.colors.cherry) },
                         onClick = { menu = false; confirmDelete = true },
@@ -307,14 +334,17 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
     }
 
     if (showShare) {
-        ShareSheet(current, session.scale(current.id), onDismiss = { showShare = false })
+        ShareSheet(current, session.scale(current.id), container.photos) { showShare = false }
+    }
+    if (showCookbooks) {
+        AddToCookbooksSheet(container, current, onDismiss = { showCookbooks = false }, onAdded = { notice = it })
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             containerColor = Pinch.colors.surface,
             title = { Text("Delete ${current.displayTitle}?") },
-            text = { Text("This removes it from this device and from Google Drive if you've connected it.") },
+            text = { Text(if (container.server.state.value.connected) "This removes it from your devices and your server backup. This also removes it from your cookbooks." else "This removes it from this device.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -325,7 +355,36 @@ fun DetailScreen(container: AppContainer, recipeId: String, onBack: () -> Unit, 
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep it") } },
         )
     }
-    viewer?.let { start -> PageViewerDialog(current.photos.map { container.photos.file(it) }, start) { viewer = null } }
+    viewer?.let { photo ->
+        val names = if (photo.isRecipePhoto) current.recipePhotos else current.photos
+        PageViewerDialog(names.map(container.photos::file), photo.index, photo.isRecipePhoto) { viewer = null }
+    }
+}
+
+private data class ViewedPhoto(val index: Int, val isRecipePhoto: Boolean = false)
+
+@Composable
+private fun PhotoStrip(photos: PhotoStore, names: List<String>, title: String, isRecipePhoto: Boolean = false, onOpen: (Int) -> Unit) {
+    if (names.isEmpty()) return
+    val kind = if (isRecipePhoto) "photo" else "page"
+    val shape = RoundedCornerShape(14.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading(title)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            itemsIndexed(names) { index, name ->
+                AsyncImage(
+                    model = photos.file(name),
+                    contentDescription = "Open $kind ${index + 1}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(if (isRecipePhoto) 140.dp else 110.dp, if (isRecipePhoto) 104.dp else 146.dp)
+                        .clip(shape)
+                        .border(1.dp, Pinch.colors.line, shape)
+                        .clickable(role = Role.Button) { onOpen(index) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -1,6 +1,9 @@
 package com.example.pinch.ui.editor
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -44,6 +47,7 @@ import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -91,6 +95,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -120,8 +125,11 @@ import com.example.pinch.ui.theme.base
 import com.example.pinch.ui.theme.deep
 import com.example.pinch.ui.theme.tint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 val RecipeSaver = Saver<Recipe, String>(save = { PinchJson.encode(it) }, restore = { PinchJson.decode(it) })
 
@@ -165,11 +173,41 @@ fun RecipeEditor(
     var adding by remember { mutableStateOf<RecipeImporter.Stage?>(null) }
     var addJob by remember { mutableStateOf<Job?>(null) }
     var addError by remember { mutableStateOf<String?>(null) }
+    var addingRecipePhotos by remember { mutableStateOf(false) }
+    var recipePhotoError by remember { mutableStateOf(false) }
     var focusId by remember { mutableStateOf<String?>(null) }
     var viewer by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val recipes by container.repository.recipes.collectAsState()
+
+    val recipePhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+        if (uris.isNotEmpty()) {
+            addingRecipePhotos = true
+            scope.launch {
+                val names = mutableListOf<String>()
+                try {
+                    val remaining = (100 - draft.recipePhotos.size).coerceAtLeast(0)
+                    for (uri in uris.take(remaining)) {
+                        withContext(Dispatchers.IO) {
+                            runCatching { container.photos.save(context, uri) }.getOrNull()?.let(names::add)
+                        }
+                    }
+                    draft = draft.copy(
+                        recipePhotos = draft.recipePhotos + names,
+                        bannerPhoto = if (draft.recipePhotos.isEmpty()) names.firstOrNull() else draft.bannerPhoto,
+                    )
+                    addedPhotos = addedPhotos + names
+                    recipePhotoError = names.size < uris.size
+                } catch (e: CancellationException) {
+                    withContext(NonCancellable + Dispatchers.IO) { names.forEach(container.photos::delete) }
+                    throw e
+                } finally {
+                    addingRecipePhotos = false
+                }
+            }
+        }
+    }
 
     val launchers = rememberCaptureLaunchers { uris ->
         addJob = scope.launch {
@@ -193,11 +231,11 @@ fun RecipeEditor(
 
     fun cancel() {
         addedPhotos.forEach(container.photos::delete)
-        onCancel(if (isNew) draft else draft.copy(photos = emptyList()))
+        onCancel(if (isNew) initial else initial.copy(photos = emptyList(), recipePhotos = emptyList(), bannerPhoto = null))
     }
 
     fun attemptCancel() {
-        val pristine = isNew && draft.title.isBlank() && draft.ingredients.isEmpty() && draft.steps.isEmpty() && draft.photos.isEmpty()
+        val pristine = isNew && draft.title.isBlank() && draft.ingredients.isEmpty() && draft.steps.isEmpty() && draft.photoFiles.isEmpty()
         if (pristine || (!isNew && draft == initial)) cancel() else confirmDiscard = true
     }
 
@@ -216,10 +254,8 @@ fun RecipeEditor(
             steps = clean(draft.steps),
             emoji = draft.emoji.ifBlank { "🍽️" },
         )
-        // Pages removed while editing (including ones added this session) are deleted
-        // from disk once the edit is saved.
-        ((initial.photos + addedPhotos).toSet() - cleaned.photos.toSet()).forEach(container.photos::delete)
         onSave(cleaned)
+        ((initial.photoFiles + addedPhotos).toSet() - cleaned.photoFiles.toSet()).forEach(container.photos::delete)
     }
 
     fun updateItems(kind: Kind, transform: (List<RecipeItem>) -> List<RecipeItem>) {
@@ -294,7 +330,8 @@ fun RecipeEditor(
                                 .semantics { contentDescription = "Change emoji, currently ${draft.emoji}" },
                             contentAlignment = Alignment.Center,
                         ) {
-                            CoverArt(draft.palette, draft.pattern, Modifier.fillMaxSize(), cell = 14.dp)
+                            CoverArt(draft.palette, draft.pattern, Modifier.fillMaxSize(), cell = 14.dp,
+                                photo = draft.bannerPhoto?.let(container.photos::file))
                             EmojiSticker(draft.emoji, 50.dp, tilt = -6f)
                             Box(
                                 Modifier.align(Alignment.BottomEnd).padding(4.dp).size(24.dp).clip(CircleShape).background(Pinch.colors.jadeDeep),
@@ -331,6 +368,34 @@ fun RecipeEditor(
                                     ) { CoverArt(draft.palette, pattern, Modifier.fillMaxSize(), cell = 9.dp) }
                                 }
                             }
+                        }
+                    }
+                    if (draft.recipePhotos.isNotEmpty()) {
+                        Text("Tap a photo to use it as the banner.", style = MaterialTheme.typography.bodySmall,
+                            color = Pinch.colors.inkSoft, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp))
+                        LazyRow(contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            itemsIndexed(draft.recipePhotos, key = { _, name -> name }) { index, name ->
+                                RecipePhotoTile(container, name, index, selected = draft.bannerPhoto == name,
+                                    onSelect = { draft = draft.copy(bannerPhoto = name) },
+                                    onRemove = {
+                                        val remaining = draft.recipePhotos - name
+                                        draft = draft.copy(recipePhotos = remaining,
+                                            bannerPhoto = if (draft.bannerPhoto == name) remaining.firstOrNull() else draft.bannerPhoto)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                        if (draft.recipePhotos.size < 100) {
+                            TextButton(onClick = { recipePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                                Icon(Icons.Rounded.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Add recipe photos")
+                            }
+                        }
+                        if (draft.bannerPhoto != null) {
+                            TextButton(onClick = { draft = draft.copy(bannerPhoto = null) }) { Text("Use patterned cover") }
                         }
                     }
                 }
@@ -449,6 +514,19 @@ fun RecipeEditor(
             showEmoji = false
         })
     }
+    if (addingRecipePhotos) {
+        Dialog(onDismissRequest = {}) {
+            Row(Modifier.clip(RoundedCornerShape(24.dp)).background(Pinch.colors.surface).padding(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(22.dp), color = Pinch.colors.jadeDeep)
+                Text("Adding photos…", color = Pinch.colors.ink)
+            }
+        }
+    }
+    if (recipePhotoError) {
+        AlertDialog(onDismissRequest = { recipePhotoError = false }, title = { Text("Couldn't add all the photos") },
+            confirmButton = { TextButton(onClick = { recipePhotoError = false }) { Text("OK") } })
+    }
     adding?.let { stage ->
         Dialog(onDismissRequest = {}) {
             Column(
@@ -483,6 +561,28 @@ fun RecipeEditor(
     }
     viewer?.let { start ->
         PageViewerDialog(draft.photos.map { container.photos.file(it) }, start, onDismiss = { viewer = null })
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecipePhotoTile(container: AppContainer, name: String, index: Int, selected: Boolean, onSelect: () -> Unit, onRemove: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            Modifier.size(96.dp, 72.dp).clip(RoundedCornerShape(12.dp)).background(Pinch.colors.sunken)
+                .combinedClickable(onClick = onSelect, onLongClick = { menu = true }, onLongClickLabel = "Photo options", role = Role.Button)
+                .semantics { contentDescription = "Use photo ${index + 1} as banner"; this.selected = selected },
+        ) {
+            AsyncImage(container.photos.file(name), null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+            if (selected) {
+                Icon(Icons.Rounded.Check, null, tint = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).size(24.dp).background(Pinch.colors.jadeDeep, CircleShape).padding(3.dp))
+            }
+        }
+        DropdownMenu(menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Remove photo") }, onClick = { menu = false; onRemove() })
+        }
     }
 }
 

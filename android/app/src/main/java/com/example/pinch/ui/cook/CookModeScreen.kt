@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.pinch.AppContainer
+import com.example.pinch.ai.CookModeAI
+import com.example.pinch.ai.OpenRouterFailure
 import com.example.pinch.model.Recipe
 import com.example.pinch.model.RecipeItem
 import com.example.pinch.parsing.DurationParser
@@ -95,14 +97,22 @@ private data class Entry(val item: RecipeItem, val number: Int, val heading: Str
 /** One step at a time, in big type, with the screen kept awake. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CookModeScreen(container: AppContainer, recipeId: String, onClose: () -> Unit) {
+fun CookModeScreen(container: AppContainer, recipeId: String, onClose: () -> Unit, previewRecipe: Recipe? = null) {
     val recipe by container.repository.observe(recipeId).collectAsState(initial = container.repository.recipe(recipeId))
-    val current = recipe ?: run {
+    val current = previewRecipe ?: recipe ?: run {
         LaunchedEffect(Unit) { onClose() }
         return
     }
     val session = container.cooking
     val timers by container.timers.timers.collectAsState()
+    val apiKey by container.ai.apiKey.collectAsState()
+    val server by container.server.state.collectAsState()
+    val aiEnabled by container.ai.cookModeEnabled.collectAsState()
+    val input = if (server.managed || (aiEnabled && apiKey != null)) {
+        remember(current.ingredients, current.steps) { CookModeAI.Input.from(current) }
+    } else null
+    val matches = input?.let { session.ingredientMatches[it] }
+    var matchingFailed by remember(input, apiKey, server.managed) { mutableStateOf(false) }
     val entries = remember(current.steps) {
         var heading: String? = null
         var n = 0
@@ -128,6 +138,15 @@ fun CookModeScreen(container: AppContainer, recipeId: String, onClose: () -> Uni
     DisposableEffect(Unit) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
+    }
+    LaunchedEffect(input, apiKey, server.managed) {
+        val client = container.ai.client()
+        if (input == null || client == null || session.ingredientMatches[input] != null) return@LaunchedEffect
+        try {
+            session.ingredientMatches[input] = CookModeAI.match(input, client)
+        } catch (_: OpenRouterFailure) {
+            matchingFailed = true
+        }
     }
     LaunchedEffect(pager) {
         var previous = pager.currentPage
@@ -159,10 +178,18 @@ fun CookModeScreen(container: AppContainer, recipeId: String, onClose: () -> Uni
                 Box(Modifier.weight(1f).height(6.dp).clip(CircleShape).background(color))
             }
         }
+        if (pager.currentPage < entries.size && input != null && matches == null) {
+            Text(
+                if (matchingFailed) "AI matching unavailable. Using on-device matches." else "Matching ingredients…",
+                style = MaterialTheme.typography.bodySmall,
+                color = Pinch.colors.inkSoft,
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
 
         HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()) { page ->
             if (page < entries.size) {
-                StepPage(container, current, entries[page]) { seconds, label ->
+                StepPage(container, current, entries[page], matches?.get(page)) { seconds, label ->
                     askForNotifications()
                     container.timers.start(seconds, label, current)
                 }
@@ -224,10 +251,10 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, d
 }
 
 @Composable
-private fun StepPage(container: AppContainer, recipe: Recipe, entry: Entry, onTimer: (Int, String) -> Unit) {
+private fun StepPage(container: AppContainer, recipe: Recipe, entry: Entry, matchedIngredients: List<RecipeItem>?, onTimer: (Int, String) -> Unit) {
     val session = container.cooking
     val durations = remember(entry.item.text) { DurationParser.matches(entry.item.text) }
-    val uses = remember(entry.item.text, recipe.ingredients) { StepIngredients.matching(entry.item.text, recipe) }
+    val uses = matchedIngredients ?: remember(entry.item.text, recipe.ingredients) { StepIngredients.matching(entry.item.text, recipe) }
     val scale = session.scale(recipe.id)
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp),

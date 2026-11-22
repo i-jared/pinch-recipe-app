@@ -333,6 +333,7 @@ object RecipeImporter {
     private fun reason(e: Exception): String = when (e) {
         OpenRouterFailure.Offline -> "you're offline"
         OpenRouterFailure.InvalidKey -> "OpenRouter didn't accept your key"
+        OpenRouterFailure.SessionExpired -> "your Pinch sign-in expired"
         OpenRouterFailure.NoCredits -> "your OpenRouter account is out of credit"
         OpenRouterFailure.RateLimited -> "OpenRouter was busy"
         OpenRouterFailure.TimedOut -> "the AI took too long"

@@ -31,6 +31,7 @@ enum CaptureStart: Identifiable {
 
 struct LibraryView: View {
     @Environment(RecipeStore.self) private var store
+    @Environment(ServerSync.self) private var server
     @Binding var path: [Route]
     let zoom: Namespace.ID
 
@@ -46,6 +47,7 @@ struct LibraryView: View {
     }
 
     @State private var query = ""
+    @AppStorage("libraryPresentation") private var presentation = "recipes"
     @State private var filter: Filter = .all
     @AppStorage("librarySort") private var sort: Sort = .newest
     @State private var engine = SearchEngine()
@@ -69,11 +71,15 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                if !store.recipes.isEmpty {
-                    searchField
-                    if query.isEmpty { filterBar }
+                if presentation == "cookbooks" {
+                    RecipeGroupsView()
+                } else {
+                    if !store.recipes.isEmpty {
+                        searchField
+                        if query.isEmpty { filterBar }
+                    }
+                    content
                 }
-                content
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -163,11 +169,24 @@ struct LibraryView: View {
                 pendingDelete = nil
             }
         } message: {
-            Text("This removes it from this device and from Google Drive if you've connected it.")
+            Text(server.isConnected ? "This removes it from your devices and your server backup. This also removes it from your cookbooks." : "This removes it from this device.")
         }
     }
 
     // MARK: Header
+
+    private func presentationButton(_ title: String, systemImage: String, value: String) -> some View {
+        Button { searchFocused = false; presentation = value } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .foregroundStyle(presentation == value ? Theme.onJade : Theme.ink)
+                .background(presentation == value ? Theme.jade : Theme.sunken, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(presentation == value ? .isSelected : [])
+    }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -178,16 +197,22 @@ struct LibraryView: View {
                 Text(subtitle)
                     .font(.rounded(.subheadline, .medium))
                     .foregroundStyle(Theme.inkSoft)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
-            Spacer()
-            NavigationLink(value: Route.settings) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Theme.sunken))
+            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                presentationButton("Cookbooks", systemImage: "books.vertical", value: "cookbooks")
+                presentationButton("All recipes", systemImage: "square.grid.2x2", value: "recipes")
+                NavigationLink(value: Route.settings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Theme.sunken))
+                }
+                .accessibilityLabel("Settings")
             }
-            .accessibilityLabel("Settings")
         }
     }
 
@@ -409,10 +434,12 @@ struct PressableCardStyle: ButtonStyle {
 /// A recipe on the shelf: a patterned tin with a white label for the name.
 struct RecipeTinCard: View {
     let recipe: Recipe
+    var showsBanner = true
+    @Environment(RecipeStore.self) private var store
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            CoverArt(palette: recipe.palette, pattern: recipe.pattern, cell: 20)
+            RecipeCover(recipe: recipe, photos: showsBanner ? store.photos : nil, cell: 20)
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
                     EmojiSticker(emoji: recipe.emoji, size: 54, tilt: CoverSuggester.stableIndex(recipe.id, count: 2) == 0 ? -8 : 7)
@@ -457,12 +484,13 @@ struct RecipeTinCard: View {
 
 struct SearchResultRow: View {
     let result: FuzzySearch.Result
+    @Environment(RecipeStore.self) private var store
 
     var body: some View {
         let recipe = result.recipe
         HStack(spacing: 14) {
             ZStack {
-                CoverArt(palette: recipe.palette, pattern: recipe.pattern, cell: 14)
+                RecipeCover(recipe: recipe, photos: store.photos, cell: 14, maxPixelSize: 240)
                 Text(recipe.emoji).font(.system(size: 28))
             }
             .frame(width: 64, height: 64)
@@ -600,7 +628,7 @@ struct WebRecipeSheet: View {
     @State private var text = ""
     @State private var showInvalid = false
     @FocusState private var focused: Bool
-    private let account = AIAccount.shared
+    @Environment(ServerSync.self) private var server
 
     private var url: URL? { WebRecipeImporter.normalizedURL(text) }
 
@@ -639,8 +667,8 @@ struct WebRecipeSheet: View {
                         .font(.rounded(.footnote, .semibold))
                         .foregroundStyle(Theme.cherry)
                 }
-                if !account.isConnected {
-                    Label("Most recipe sites work as is. For the rest, add an OpenRouter key in Settings and AI will find the recipe.", systemImage: "sparkles")
+                if server.aiClient == nil {
+                    Label("Most recipe sites work as is. Sign in to Pinch to read pages without a recipe card.", systemImage: "sparkles")
                         .font(.rounded(.footnote))
                         .foregroundStyle(Theme.inkSoft)
                 }

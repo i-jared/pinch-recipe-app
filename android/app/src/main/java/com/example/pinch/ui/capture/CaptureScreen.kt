@@ -108,7 +108,7 @@ fun CaptureScreen(container: AppContainer, onDone: (String?) -> Unit) {
                 onDone(recipe.id)
             },
             onCancel = { draft ->
-                draft.photos.forEach(container.photos::delete)
+                draft.photoFiles.forEach(container.photos::delete)
                 container.capture.finish()
                 onDone(null)
             },
@@ -368,7 +368,7 @@ fun WebRecipeDialog(aiConnected: Boolean, onDismiss: () -> Unit, onSubmit: (Stri
                 if (!aiConnected) {
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Most recipe sites work as is. For the rest, add an OpenRouter key in Settings and AI will find the recipe.",
+                        "Most recipe sites work as is. Sign in to Pinch to read pages without a recipe card.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Pinch.colors.inkSoft,
                     )

@@ -1,7 +1,7 @@
 import Foundation
 
 /// JSON encoding shared with the Android app: ISO-8601 UTC dates with milliseconds,
-/// sorted keys, pretty printed so Drive backups stay readable.
+/// sorted keys, pretty printed so server backups stay readable.
 enum PinchJSON {
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()

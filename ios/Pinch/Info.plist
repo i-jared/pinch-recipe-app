@@ -18,6 +18,25 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Pinch invitations</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pinch</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Pinch sign-in</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>net.lmbrt.recipes.pinch</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -28,8 +47,6 @@
 	<string>Pinch uses the camera to scan recipe cards and cookbook pages.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Pinch saves recipe cards you share to your photo library.</string>
-	<key>PinchGoogleClientID</key>
-	<string>$(GOOGLE_IOS_CLIENT_ID)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

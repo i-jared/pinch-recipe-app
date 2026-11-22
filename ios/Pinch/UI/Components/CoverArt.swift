@@ -118,6 +118,27 @@ struct CoverArt: View {
     }
 }
 
+struct RecipeCover: View {
+    let recipe: Recipe
+    let photos: PhotoStore?
+    var cell: CGFloat = 22
+    var maxPixelSize: CGFloat = 480
+
+    var body: some View {
+        CoverArt(palette: recipe.palette, pattern: recipe.pattern, cell: cell)
+            .overlay {
+                if let name = recipe.bannerPhoto, let image = photos?.thumbnail(named: name, maxPixelSize: maxPixelSize) {
+                    GeometryReader { geo in
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                    }
+                    .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
 /// A round white sticker with the recipe's emoji, slightly tilted like it was stuck on by hand.
 struct EmojiSticker: View {
     let emoji: String

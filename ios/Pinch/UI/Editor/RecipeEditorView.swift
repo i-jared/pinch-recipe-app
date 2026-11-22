@@ -16,6 +16,7 @@ struct RecipeEditorView: View {
     let onCancel: (Recipe) -> Void
 
     @Environment(RecipeStore.self) private var store
+    @Environment(ServerSync.self) private var server
     @State private var draft: Recipe
     private let original: Recipe
     @State private var editMode: EditMode = .inactive
@@ -23,6 +24,9 @@ struct RecipeEditorView: View {
     @State private var showScanner = false
     @State private var showPhotoPicker = false
     @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var pickedRecipePhotos: [PhotosPickerItem] = []
+    @State private var photoTask: Task<Void, Never>?
+    @State private var recipePhotoError = false
     @State private var addingStage: RecipeImporter.Stage?
     @State private var addTask: Task<Void, Never>?
     @State private var addPageError: String?
@@ -58,6 +62,7 @@ struct RecipeEditorView: View {
             if !draft.rawText.isEmpty { scannedTextSection }
         }
         .listStyle(.insetGrouped)
+        .disabled(photoTask != nil)
         .scrollContentBackground(.hidden)
         .background(Theme.canvas.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
@@ -67,17 +72,19 @@ struct RecipeEditorView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { attemptCancel() }
+                    .disabled(photoTask != nil)
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(mode.isNew ? "Save recipe" : "Save") { save() }
                     .fontWeight(.bold)
+                    .disabled(photoTask != nil)
             }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { focus = nil }
             }
         }
-        .interactiveDismissDisabled(hasChanges)
+        .interactiveDismissDisabled(hasChanges || photoTask != nil)
         .confirmationDialog(mode.isNew ? "Discard this recipe?" : "Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button(mode.isNew ? "Discard recipe" : "Discard changes", role: .destructive) { cancel() }
             Button("Keep editing", role: .cancel) {}
@@ -112,6 +119,12 @@ struct RecipeEditorView: View {
                 addPages(images)
             }
         }
+        .onChange(of: pickedRecipePhotos) { _, items in
+            guard !items.isEmpty else { return }
+            pickedRecipePhotos = []
+            addRecipePhotos(items)
+        }
+        .onDisappear { photoTask?.cancel() }
         .overlay {
             if let stage = addingStage {
                 AddingPageOverlay(stage: stage) { addTask?.cancel() }
@@ -121,6 +134,9 @@ struct RecipeEditorView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(addPageError ?? "")
+        }
+        .alert("Couldn't add all the photos", isPresented: $recipePhotoError) {
+            Button("OK", role: .cancel) {}
         }
     }
 
@@ -245,7 +261,7 @@ struct RecipeEditorView: View {
                     showEmojiPicker = true
                 } label: {
                     ZStack {
-                        CoverArt(palette: draft.palette, pattern: draft.pattern, cell: 14)
+                        RecipeCover(recipe: draft, photos: store.photos, cell: 14)
                         EmojiSticker(emoji: draft.emoji, size: 50, tilt: -6)
                     }
                     .frame(width: 84, height: 84)
@@ -298,8 +314,66 @@ struct RecipeEditorView: View {
                 }
             }
             .padding(.vertical, 6)
+            if !draft.recipePhotos.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tap a photo to use it as the banner.")
+                        .font(.rounded(.footnote))
+                        .foregroundStyle(Theme.inkSoft)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(Array(draft.recipePhotos.enumerated()), id: \.element) { index, name in
+                                recipePhotoTile(name, index: index)
+                            }
+                        }
+                    }
+                }
+                if draft.bannerPhoto != nil {
+                    Button("Use patterned cover") { draft.bannerPhoto = nil }
+                }
+            }
+            if photoTask != nil {
+                ProgressView("Adding photos…")
+            } else if draft.recipePhotos.count < 100 {
+                PhotosPicker(selection: $pickedRecipePhotos, maxSelectionCount: min(10, 100 - draft.recipePhotos.count),
+                             selectionBehavior: .ordered, matching: .images) {
+                    Label("Add recipe photos", systemImage: "photo.on.rectangle")
+                }
+            }
         } header: {
             editorHeader("Cover")
+        }
+    }
+
+    private func recipePhotoTile(_ name: String, index: Int) -> some View {
+        let selected = draft.bannerPhoto == name
+        return Button {
+            draft.bannerPhoto = name
+        } label: {
+            Theme.sunken.overlay {
+                if let image = store.photos.thumbnail(named: name) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
+            }
+            .frame(width: 96, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(alignment: .bottomTrailing) {
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Theme.jadeDeep)
+                        .font(.title3)
+                        .padding(4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Use photo \(index + 1) as banner")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .contextMenu {
+            Button("Remove photo", systemImage: "trash", role: .destructive) {
+                draft.recipePhotos.removeAll { $0 == name }
+                if selected { draft.bannerPhoto = draft.recipePhotos.first }
+            }
         }
     }
 
@@ -569,13 +643,33 @@ struct RecipeEditorView: View {
 
     private var hasChanges: Bool { draft != original || mode.isNew }
 
+    private func addRecipePhotos(_ items: [PhotosPickerItem]) {
+        let photos = store.photos
+        photoTask = Task {
+            var names: [String] = []
+            defer { photoTask = nil }
+            for item in items.prefix(100 - draft.recipePhotos.count) {
+                if Task.isCancelled { break }
+                guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                if let name = try? await Task.detached(operation: { try photos.importPhoto(data) }).value {
+                    names.append(name)
+                }
+            }
+            guard !Task.isCancelled else { names.forEach(photos.delete); return }
+            if draft.recipePhotos.isEmpty { draft.bannerPhoto = names.first }
+            draft.recipePhotos += names
+            photosAddedHere += names
+            recipePhotoError = names.count < items.count
+        }
+    }
+
     private func addPages(_ images: [UIImage]) {
         guard !images.isEmpty else { return }
         let before = Set(draft.photos)
         addTask = Task {
             do {
                 var working = draft
-                try await RecipeImporter.appendPages(images, to: &working, photos: store.photos, ai: AIAccount.shared.client) { stage in
+                try await RecipeImporter.appendPages(images, to: &working, photos: store.photos, ai: server.aiClient) { stage in
                     addingStage = stage
                 }
                 photosAddedHere += working.photos.filter { !before.contains($0) }
@@ -605,11 +699,9 @@ struct RecipeEditorView: View {
         recipe.ingredients = recipe.ingredients.compactMap(cleaned)
         recipe.steps = recipe.steps.compactMap(cleaned)
         if recipe.emoji.trimmingCharacters(in: .whitespaces).isEmpty { recipe.emoji = "🍽️" }
-        // Pages removed while editing (including ones added this session) are deleted
-        // from disk once the edit is saved.
-        let removed = Set(original.photos).union(photosAddedHere).subtracting(recipe.photos)
-        removed.forEach(store.photos.delete)
+        let removed = Set(original.photoFiles).union(photosAddedHere).subtracting(recipe.photoFiles)
         onSave(recipe)
+        removed.forEach(store.photos.delete)
     }
 
     private func cleaned(_ item: RecipeItem) -> RecipeItem? {
@@ -619,7 +711,7 @@ struct RecipeEditorView: View {
     }
 
     private func attemptCancel() {
-        let pristineNew = mode.isNew && draft.title.isEmpty && draft.ingredients.isEmpty && draft.steps.isEmpty && draft.photos.isEmpty
+        let pristineNew = mode.isNew && draft.title.isEmpty && draft.ingredients.isEmpty && draft.steps.isEmpty && draft.photoFiles.isEmpty
         if pristineNew || (!mode.isNew && draft == original) {
             cancel()
         } else {
@@ -629,9 +721,8 @@ struct RecipeEditorView: View {
 
     private func cancel() {
         photosAddedHere.forEach(store.photos.delete)
-        var abandoned = draft
-        // For a saved recipe only the photos added in this session are thrown away.
-        if !mode.isNew { abandoned.photos = [] }
+        var abandoned = original
+        if !mode.isNew { abandoned.photos = []; abandoned.recipePhotos = []; abandoned.bannerPhoto = nil }
         onCancel(abandoned)
     }
 }

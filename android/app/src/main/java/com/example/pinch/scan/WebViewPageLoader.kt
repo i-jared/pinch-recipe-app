@@ -8,9 +8,11 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.Dispatchers
@@ -116,6 +118,10 @@ object WebViewPageLoader {
                 webView.stopLoading()
                 host?.removeView(webView)
                 webView.destroy()
+                // Nothing from one site's visit (cookies, storage) is kept for the next.
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+                WebStorage.getInstance().deleteAllData()
             }
         }
 

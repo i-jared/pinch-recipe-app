@@ -1,9 +1,23 @@
 .DS_Store
 
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+*.jks
+*.keystore
+
 # iOS
 ios/Config/Local.xcconfig
 ios/build/
 ios/DerivedData/
+*.xcarchive
+*.ipa
 xcuserdata/
 *.xcuserstate
 
@@ -15,3 +29,26 @@ android/app/build/
 android/local.properties
 android/.idea/
 *.iml
+android/keystore.properties
+*.apk
+*.aab
+
+# Self-hosted server
+backend/.venv/
+backend/data/
+backend/deploy/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite3-wal
+*.sqlite-shm
+*.sqlite3-shm
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+.pytest_cache/
+
+# Local store submissions and build outputs
+docs/store/
+dist/

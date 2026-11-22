@@ -18,12 +18,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.pinch.model.CoverPalette
 import com.example.pinch.model.CoverPattern
 import com.example.pinch.ui.theme.base
+import java.io.File
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.sin
@@ -120,9 +123,12 @@ fun CoverPattern(pattern: CoverPattern, cell: Dp, modifier: Modifier = Modifier,
 
 /** The recipe's cover: its color and its pattern. */
 @Composable
-fun CoverArt(palette: CoverPalette, pattern: CoverPattern, modifier: Modifier = Modifier, cell: Dp = 22.dp) {
+fun CoverArt(palette: CoverPalette, pattern: CoverPattern, modifier: Modifier = Modifier, cell: Dp = 22.dp, photo: File? = null) {
     Box(modifier.background(palette.base)) {
         CoverPattern(pattern, cell, Modifier.fillMaxSize())
+        if (photo != null) {
+            AsyncImage(model = photo, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+        }
     }
 }
 

@@ -2,11 +2,18 @@ import SwiftUI
 
 struct RecipeDetailView: View {
     let recipeID: String
+    var previewRecipe: Recipe? = nil
+    var sharedItem: SharedRecipe? = nil
+    var sharedGroup: ServerGroup? = nil
 
     @Environment(RecipeStore.self) private var store
+    @Environment(ServerSync.self) private var server
     @Environment(CookingSession.self) private var session
     @Environment(TimerCenter.self) private var timers
     @Environment(\.dismiss) private var dismiss
+    @State private var work = GroupWork()
+    @State private var notice: String?
+    @State private var showCookbooks = false
     @State private var showEditor = false
     @State private var showCookMode = false
     @State private var showShare = false
@@ -16,7 +23,7 @@ struct RecipeDetailView: View {
     @State private var scrolledPastHero = false
 
     var body: some View {
-        if let recipe = store.recipe(recipeID) {
+        if let recipe = previewRecipe ?? store.recipe(recipeID) {
             content(recipe)
         } else {
             ContentUnavailableView("This recipe was deleted", systemImage: "fork.knife", description: Text("It may have been removed on another device."))
@@ -49,8 +56,12 @@ struct RecipeDetailView: View {
             ShareRecipeSheet(recipe: recipe, scale: session.scale(for: recipe.id))
                 .tint(Theme.jadeDeep)
         }
+        .sheet(isPresented: $showCookbooks) {
+            AddToCookbooksSheet(recipe: recipe, onAdded: { notice = $0 })
+                .tint(Theme.jadeDeep)
+        }
         .fullScreenCover(item: $viewer) { item in
-            PageViewer(photos: recipe.photos, startIndex: item.index)
+            PageViewer(photos: item.isRecipePhoto ? recipe.recipePhotos : recipe.photos, startIndex: item.index, isRecipePhoto: item.isRecipePhoto)
         }
         .confirmationDialog("Delete \(recipe.displayTitle)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete recipe", role: .destructive) {
@@ -58,8 +69,14 @@ struct RecipeDetailView: View {
                 store.delete(recipe.id)
             }
         } message: {
-            Text("This removes it from this device and from Google Drive if you've connected it.")
+            Text(server.isConnected ? "This removes it from your devices and your server backup. This also removes it from your cookbooks." : "This removes it from this device.")
         }
+        .toolbar(.hidden, for: .tabBar)
+        .task(id: notice) {
+            guard notice != nil else { return }
+            do { try await Task.sleep(for: .seconds(3)); notice = nil } catch { }
+        }
+        .task { if server.isConnected && sharedItem == nil { try? await server.loadGroups() } }
         .onChange(of: keepAwake) { _, awake in UIApplication.shared.isIdleTimerDisabled = awake }
         .onDisappear { if keepAwake { UIApplication.shared.isIdleTimerDisabled = false } }
     }
@@ -70,10 +87,12 @@ struct RecipeDetailView: View {
                 StretchyHero(recipe: recipe)
                 VStack(alignment: .leading, spacing: 30) {
                     TitleBlock(recipe: recipe)
+                    sharingStatus(recipe)
                     IngredientsCard(recipe: recipe)
                     StepsList(recipe: recipe)
                     if !recipe.notes.isEmpty { NotesCard(notes: recipe.notes) }
-                    if !recipe.photos.isEmpty { pages(recipe) }
+                    photoStrip(recipe.recipePhotos, title: "Recipe photos", isRecipePhoto: true)
+                    photoStrip(recipe.photos, title: recipe.photos.count == 1 ? "Original page" : "Original pages")
                     footer(recipe)
                 }
                 .padding(.horizontal, 20)
@@ -113,7 +132,7 @@ struct RecipeDetailView: View {
     @ToolbarContentBuilder
     private func toolbar(_ recipe: Recipe) -> some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
+            if sharedItem == nil { Button {
                 store.toggleFavorite(recipe.id)
                 Haptics.tap()
             } label: {
@@ -121,30 +140,62 @@ struct RecipeDetailView: View {
                     .foregroundStyle(recipe.isFavorite ? Theme.cherry : Theme.ink)
                     .symbolEffect(.bounce, value: recipe.isFavorite)
             }
-            .accessibilityLabel(recipe.isFavorite ? "Remove from favorites" : "Add to favorites")
+            .accessibilityLabel(recipe.isFavorite ? "Remove from favorites" : "Add to favorites") }
 
-            Button {
+            if sharedItem == nil { Button { showCookbooks = true } label: {
+                Image(systemName: "books.vertical").foregroundStyle(Theme.ink)
+            }
+            .accessibilityLabel("Add to cookbook") }
+
+            if sharedItem == nil { Button {
                 showShare = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(Theme.ink)
             }
-            .accessibilityLabel("Share recipe card")
+            .accessibilityLabel("Share recipe") }
 
             Menu {
-                Button { showEditor = true } label: { Label("Edit recipe", systemImage: "pencil") }
+                if sharedItem == nil { Button { showEditor = true } label: { Label("Edit recipe", systemImage: "pencil") } }
                 Toggle(isOn: $keepAwake) { Label("Keep screen on", systemImage: "sun.max") }
-                Button { store.markCooked(recipe.id); Haptics.success() } label: { Label("Mark as cooked today", systemImage: "checkmark.seal") }
+                if sharedItem == nil { Button { store.markCooked(recipe.id); Haptics.success() } label: { Label("Mark as cooked today", systemImage: "checkmark.seal") } }
                 if session.hasProgress(in: recipe.id) {
                     Button { withAnimation { session.reset(recipe.id) } } label: { Label("Clear checkmarks", systemImage: "arrow.counterclockwise") }
                 }
-                Divider()
-                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete recipe", systemImage: "trash") }
+                if sharedItem == nil {
+                    Divider()
+                    Button(role: .destructive) { confirmDelete = true } label: { Label("Delete recipe", systemImage: "trash") }
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(Theme.ink)
             }
             .accessibilityLabel("More")
+        }
+    }
+
+    @ViewBuilder
+    private func sharingStatus(_ recipe: Recipe) -> some View {
+        if let item = sharedItem, let group = sharedGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Shared by \(item.sharedBy) · \(group.name)", systemImage: "person.2").font(.rounded(.subheadline, .semibold))
+                if let id = server.savedCopy(of: item)?.id {
+                    NavigationLink { RecipeDetailView(recipeID: id) } label: { Label("Saved · Open my copy", systemImage: "checkmark.circle.fill") }.buttonStyle(SoftButtonStyle())
+                } else {
+                    Button("Save to my recipes", systemImage: "plus") { work.run { try await server.saveCopy(item, from: group) } }.buttonStyle(SoftButtonStyle()).disabled(work.busy)
+                }
+                GroupFeedback(work: work)
+            }.foregroundStyle(Theme.jadeDeep)
+        } else {
+            let groups = server.allCookbooks.filter { ($0.mySharedRecipeIds ?? []).contains(recipe.id) }
+            if !groups.isEmpty {
+                Menu {
+                    ForEach(groups) { group in NavigationLink(group.name) { RecipeGroupView(group: group) } }
+                    Button("Add to another cookbook") { showCookbooks = true }
+                } label: { Label("In " + groups.map(\.name).joined(separator: ", "), systemImage: "books.vertical").font(.rounded(.subheadline, .semibold)).foregroundStyle(Theme.jadeDeep) }
+            }
+            if let origin = recipe.origin { Text("From \(origin.sharedBy) · \(origin.groupName)").font(.rounded(.subheadline)).foregroundStyle(Theme.inkSoft) }
+            if let notice { Text(notice).font(.rounded(.subheadline, .semibold)).foregroundStyle(Theme.jadeDeep) }
         }
     }
 
@@ -169,32 +220,34 @@ struct RecipeDetailView: View {
         .background(alignment: .bottom) { BottomFade() }
     }
 
-    private func pages(_ recipe: Recipe) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(recipe.photos.count == 1 ? "Original page" : "Original pages")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Array(recipe.photos.enumerated()), id: \.element) { index, name in
-                        Button {
-                            viewer = PageViewerItem(index: index)
-                        } label: {
-                            Group {
-                                if let image = store.photos.thumbnail(named: name, maxPixelSize: 420) {
-                                    Image(uiImage: image).resizable().scaledToFill()
-                                } else {
-                                    Theme.sunken
+    @ViewBuilder private func photoStrip(_ names: [String], title: String, isRecipePhoto: Bool = false) -> some View {
+        if !names.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeading(title)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(Array(names.enumerated()), id: \.element) { index, name in
+                            Button {
+                                viewer = PageViewerItem(index: index, isRecipePhoto: isRecipePhoto)
+                            } label: {
+                                Group {
+                                    if let image = store.photos.thumbnail(named: name, maxPixelSize: 420) {
+                                        Image(uiImage: image).resizable().scaledToFill()
+                                    } else {
+                                        Theme.sunken
+                                    }
                                 }
+                                .frame(width: isRecipePhoto ? 140 : 110, height: isRecipePhoto ? 104 : 146)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
                             }
-                            .frame(width: 110, height: 146)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+                            .buttonStyle(PressableCardStyle())
+                            .accessibilityLabel("Open \(isRecipePhoto ? "photo" : "page") \(index + 1)")
                         }
-                        .buttonStyle(PressableCardStyle())
-                        .accessibilityLabel("Open page \(index + 1)")
                     }
                 }
+                .scrollClipDisabled()
             }
-            .scrollClipDisabled()
         }
     }
 
@@ -214,13 +267,14 @@ struct RecipeDetailView: View {
 
 private struct StretchyHero: View {
     let recipe: Recipe
+    @Environment(RecipeStore.self) private var store
     private let height: CGFloat = 300
 
     var body: some View {
         GeometryReader { geo in
             let pull = max(0, geo.frame(in: .scrollView).minY)
             ZStack(alignment: .bottomLeading) {
-                CoverArt(palette: recipe.palette, pattern: recipe.pattern, cell: 28)
+                RecipeCover(recipe: recipe, photos: store.photos, cell: 28, maxPixelSize: 1440)
                 EmojiSticker(emoji: recipe.emoji, size: 96, tilt: -7)
                     .padding(.leading, 24)
                     .padding(.bottom, 52)

@@ -3,6 +3,7 @@ package com.example.pinch
 import com.example.pinch.ai.AIAccount
 import com.example.pinch.ai.AIConfig
 import com.example.pinch.ai.AIReading
+import com.example.pinch.ai.CookModeAI
 import com.example.pinch.ai.NotARecipeException
 import com.example.pinch.ai.OpenRouterClient
 import com.example.pinch.ai.OpenRouterFailure
@@ -16,6 +17,7 @@ import com.example.pinch.scan.RecipeImporter
 import com.example.pinch.scan.ScrapedPage
 import com.example.pinch.scan.StructuredRecipe
 import com.example.pinch.scan.WebRecipeImporter
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,6 +30,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -298,6 +301,51 @@ class RecipeAITest {
         // The two apps send the same instructions, so they read recipes the same way.
         assertTrue(RecipeAI.SYSTEM_PROMPT.startsWith("You are the recipe reader in Pinch"))
         assertTrue(RecipeAI.SYSTEM_PROMPT.contains("chosen from: Breakfast, Lunch, Dinner, Dessert, Baking, Snack, Drinks, Soup, Salad, Pasta, Chicken, Seafood, Vegetarian, Sides, Holidays."))
+    }
+}
+
+class CookModeAITest {
+    private val recipe = Recipe(
+        ingredients = listOf(
+            RecipeItem(text = "Dry ingredients", isHeader = true),
+            RecipeItem(id = "flour-id", text = "2 cups flour"),
+            RecipeItem(id = "salt-id", text = "1 tsp salt"),
+        ),
+        steps = listOf(
+            RecipeItem(text = "For the dough", isHeader = true),
+            RecipeItem(text = "Preheat the oven."),
+            RecipeItem(text = "Mix the dry ingredients."),
+        ),
+        notes = "Only for my family",
+    )
+    private val input = checkNotNull(CookModeAI.Input.from(recipe))
+
+    @Test fun matchesIndirectReferencesAndKeepsEmptySteps() {
+        val matches = CookModeAI.decode("""{"ingredientNumbersByStep":[[],[2,1,2]]}""", input)
+        assertEquals(listOf(emptyList(), listOf("flour-id", "salt-id")), matches.map { it.map(RecipeItem::id) })
+    }
+
+    @Test fun rejectsIncompleteOrInvalidMatches() {
+        val invalidAnswers = listOf(
+            """{"ingredientNumbersByStep":[[1]]}""",
+            """{"ingredientNumbersByStep":[[],[3]]}""",
+            """{"ingredientNumbersByStep":[[],["1"]]}""",
+        )
+        for (answer in invalidAnswers) {
+            assertThrows(OpenRouterFailure.BadResponse::class.java) { CookModeAI.decode(answer, input) }
+        }
+    }
+
+    @Test fun promptIncludesHeadingsAndOnlyNumberedRecipeLines() {
+        val prompt = input.prompt()
+        val payload = Json.parseToJsonElement(prompt).jsonObject
+        assertEquals(setOf("ingredients", "steps"), payload.keys)
+        for (section in payload.values) {
+            assertEquals(listOf(null, 1, 2), section.jsonArray.map { it.jsonObject["number"]?.jsonPrimitive?.int })
+        }
+        assertTrue(prompt.contains("Dry ingredients"))
+        assertFalse(prompt.contains("flour-id"))
+        assertFalse(prompt.contains("Only for my family"))
     }
 }
 

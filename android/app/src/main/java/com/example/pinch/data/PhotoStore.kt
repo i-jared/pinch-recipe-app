@@ -12,7 +12,7 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Scanned pages, stored as JPEG files named by UUID so they sync without collisions. */
+/** Recipe photos and scanned pages, stored as JPEGs with unique file names. */
 class PhotoStore(private val directory: File) {
     init {
         directory.mkdirs()
@@ -25,12 +25,18 @@ class PhotoStore(private val directory: File) {
     /** Decodes, orients upright, downscales and saves an image, returning its file name. */
     fun save(context: Context, uri: Uri): String {
         val bitmap = ImageTools.decodeUpright(context, uri, MAX_DIMENSION) ?: error("Couldn't open that image")
-        return save(bitmap).also { bitmap.recycle() }
+        return try { save(bitmap) } finally { bitmap.recycle() }
     }
 
     fun save(bitmap: Bitmap): String {
         val name = UUID.randomUUID().toString() + ".jpg"
-        file(name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+        val target = file(name)
+        try {
+            target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 82, it)) }
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
         return name
     }
 

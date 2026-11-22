@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "pinch": {"type": "streamable-http", "url": "http://localhost:8787/mcp"}
+  }
+}

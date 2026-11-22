@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import com.example.pinch.model.SampleRecipes
+import com.example.pinch.sync.GroupInvitation
+import com.example.pinch.sync.OAUTH_SCHEME
 import com.example.pinch.ui.PinchNavHost
 import com.example.pinch.ui.theme.PinchTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,8 @@ class MainActivity : ComponentActivity() {
 
     /** Set when another app shares a recipe in; the nav host opens the capture flow. */
     private val openCapture = MutableStateFlow(false)
+    private val invitation = MutableStateFlow<GroupInvitation?>(null)
+    private val invitationError = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -49,7 +53,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             PinchTheme {
-                PinchNavHost(container = container, openCapture = openCapture)
+                PinchNavHost(container = container, openCapture = openCapture, invitation = invitation, invitationError = invitationError)
             }
         }
     }
@@ -71,6 +75,18 @@ class MainActivity : ComponentActivity() {
 
     private fun handleShare(intent: Intent?) {
         intent ?: return
+        if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == OAUTH_SCHEME) {
+            intent.data?.let(container.server::finishManagedAuthorization)
+            return
+        }
+        if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "pinch") {
+            runCatching { GroupInvitation.parse(intent.data.toString()) }.onSuccess { invitation.value = it }.onFailure { invitationError.value = it.message ?: "This invitation is incomplete." }
+            return
+        }
+        if (intent.action == Intent.ACTION_SEND) {
+            val link = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (link != null) runCatching { GroupInvitation.parse(link) }.getOrNull()?.let { invitation.value = it; return }
+        }
         when (intent.action) {
             Intent.ACTION_SEND -> {
                 val uri = intent.parcelable<Uri>(Intent.EXTRA_STREAM)

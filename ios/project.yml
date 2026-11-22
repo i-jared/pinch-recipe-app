@@ -25,6 +25,11 @@ targets:
     info:
       path: Pinch/Info.plist
       properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: Pinch invitations
+            CFBundleURLSchemes: [pinch]
+          - CFBundleURLName: Pinch sign-in
+            CFBundleURLSchemes: [net.lmbrt.recipes.pinch]
         CFBundleDisplayName: Pinch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -45,7 +50,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: Pinch uses the camera to scan recipe cards and cookbook pages.
         NSPhotoLibraryAddUsageDescription: Pinch saves recipe cards you share to your photo library.
-        PinchGoogleClientID: $(GOOGLE_IOS_CLIENT_ID)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(PINCH_BUNDLE_ID)

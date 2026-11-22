@@ -1,200 +1,86 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(DriveSync.self) private var drive
+    @Environment(ServerSync.self) private var server
     @Environment(RecipeStore.self) private var store
-    @AppStorage(AppSettings.smartParsingKey) private var smartParsing = true
-    @State private var confirmDisconnect = false
+    @State private var confirmSamples = false
 
     var body: some View {
         List {
             Section {
-                AIReadingCard()
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
-                header("Reading recipes")
-            }
+                NavigationLink { ServerSettingsView(selfHosted: server.isConnected && !server.isManaged) } label: {
+                    settingsRow(server.isConnected && !server.isManaged ? "Self-hosting" : "Account",
+                                subtitle: server.isConnected ? server.username : "Sign in to Pinch", icon: "person.crop.circle")
+                }
 
-            Section {
-                DriveCard(confirmDisconnect: $confirmDisconnect)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
-                header("Backup and sync")
             }
-
             Section {
-                Toggle(isOn: $smartParsing) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Tidy with Apple Intelligence")
-                            .font(.rounded(.body, .medium))
-                        Text(SmartParsing.isAvailable
-                             ? "Uses the on-device model to fix misread words and sort lines. Nothing leaves this iPhone."
-                             : "Needs an iPhone with Apple Intelligence turned on. Pinch's built-in reader is used instead.")
-                            .font(.rounded(.footnote))
-                            .foregroundStyle(Theme.inkSoft)
+                Button { confirmSamples = true } label: {
+                    Label("Add sample recipes", systemImage: "book.closed").foregroundStyle(Theme.jadeDeep)
+                }
+            } footer: { Text("\(store.recipes.count) recipes on this device") }
+            Section {
+                NavigationLink("About & privacy") {
+                    List {
+                        Section {
+                            Text("Your recipes live on this device and work offline. Connecting a server backs up your library to that server. Its host can access your backup. People you invite see only recipes in shared cookbooks.")
+                            Text("Pinch sends recipe imports, ingredients and directions to OpenRouter when it reads recipes or matches ingredients to cooking steps.")
+                        }
+                        LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     }
+                    .navigationTitle("About & privacy").navigationBarTitleDisplayMode(.inline)
                 }
-                .tint(Theme.jadeDeep)
-                .disabled(!SmartParsing.isAvailable)
-            } header: {
-                header("Reading on the phone")
-            } footer: {
-                Text("Pinch reads on the phone when there's no OpenRouter key or no internet connection.")
-            }
-
-            Section {
-                Button {
-                    SampleRecipes.all.forEach(store.save)
-                    Haptics.success()
-                } label: {
-                    Label("Add three sample recipes", systemImage: "sparkles")
-                        .font(.rounded(.body, .medium))
-                        .foregroundStyle(Theme.jadeDeep)
-                }
-            } header: {
-                header("Recipes")
-            } footer: {
-                Text("\(store.recipes.count) recipe\(store.recipes.count == 1 ? "" : "s") saved on this \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone").")
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Your recipes live on this device", systemImage: "lock.fill")
-                        .font(.rounded(.headline, .bold))
-                        .foregroundStyle(Theme.ink)
-                    Text("Pinch saves your recipes on this device and works without an internet connection. If you add an OpenRouter key, the photos, text and web pages you add are sent to OpenRouter to be read, and nothing else. If you connect Google Drive, your recipes are backed up to a Pinch Recipes folder in your own Drive.")
-                        .font(.rounded(.subheadline))
-                        .foregroundStyle(Theme.inkSoft)
-                }
-                .padding(.vertical, 6)
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
-                    .font(.rounded(.body))
-            } header: {
-                header("About")
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden)
         .background(Theme.canvas.ignoresSafeArea())
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Disconnect Google Drive?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
-            Button("Disconnect", role: .destructive) { Task { await drive.disconnect() } }
-        } message: {
-            Text("Your recipes stay on this iPhone and in your Drive. New changes just stop syncing.")
+        .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Add three sample recipes?", isPresented: $confirmSamples, titleVisibility: .visible) {
+            Button("Add recipes") { SampleRecipes.all.forEach(store.save); Haptics.success() }
         }
     }
 
-    private func header(_ text: String) -> some View {
-        Text(text)
-            .font(.rounded(.subheadline, .bold))
-            .foregroundStyle(Theme.inkSoft)
-            .textCase(nil)
+    private func settingsRow(_ title: String, subtitle: String, icon: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).foregroundStyle(Theme.jadeDeep).frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.rounded(.body, .semibold)).foregroundStyle(Theme.ink)
+                Text(subtitle).font(.rounded(.footnote)).foregroundStyle(Theme.inkSoft)
+            }.padding(.vertical, 5)
+        }
     }
 }
 
-private struct DriveCard: View {
-    @Environment(DriveSync.self) private var drive
-    @Binding var confirmDisconnect: Bool
+struct ReadingSettingsView: View {
+    @AppStorage(AppSettings.smartParsingKey) private var smartParsing = true
+    @AppStorage(AIConfig.cookModeKey) private var matchCookModeIngredients = false
+    @AppStorage(AIConfig.modelKey) private var model = AIConfig.model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.jade.opacity(0.25))
-                    Image(systemName: drive.isConnected ? "checkmark.icloud.fill" : "icloud.and.arrow.up.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Theme.jadeDeep)
-                }
-                .frame(width: 50, height: 50)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(drive.isConnected ? "Google Drive is connected" : "Google Drive")
-                        .font(.rounded(.headline, .bold))
-                        .foregroundStyle(Theme.ink)
-                    Text(statusText)
-                        .font(.rounded(.subheadline))
-                        .foregroundStyle(statusIsError ? Theme.cherry : Theme.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        List {
+            Section {
+                AIReadingCard(model: model).listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             }
-
-            switch drive.state {
-            case .unavailable:
-                Text("This copy of Pinch was built without a Google sign-in client, so Drive backup is turned off. Everything else works as usual. (Developers: see docs/google-drive-setup.md.)")
-                    .font(.rounded(.footnote))
-                    .foregroundStyle(Theme.inkSoft)
-            case .disconnected, .connecting:
-                Button {
-                    Task { await drive.connect() }
-                } label: {
-                    HStack {
-                        if drive.state == .connecting { ProgressView().tint(Theme.onJade) }
-                        Text(drive.state == .connecting ? "Connecting…" : "Connect Google Drive")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(drive.state == .connecting)
-            default:
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await drive.sync() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if drive.state == .syncing {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                            }
-                            Text(drive.state == .syncing ? "Syncing…" : "Sync now")
-                        }
-                    }
-                    .buttonStyle(SoftButtonStyle())
-                    .disabled(drive.state == .syncing)
-                    Spacer()
-                    Button("Disconnect") { confirmDisconnect = true }
-                        .font(.rounded(.subheadline, .semibold))
-                        .foregroundStyle(Theme.cherry)
-                }
+            if AIAccount.shared.isConnected {
+                Section {
+                    TextField("OpenRouter model ID", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Toggle("Match Cook Mode ingredients with AI", isOn: $matchCookModeIngredients).tint(Theme.jadeDeep)
+                } footer: { Text(AIConfig.cookModeDisclosure) }
+            }
+            if SmartParsing.isAvailable {
+                Section {
+                    Toggle("Tidy with Apple Intelligence", isOn: $smartParsing).tint(Theme.jadeDeep)
+                } footer: { Text("Uses the on-device model when AI reading is unavailable.") }
             }
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.surface))
-    }
-
-    private var statusIsError: Bool {
-        if case .failed = drive.state { return true }
-        return false
-    }
-
-    private var statusText: String {
-        switch drive.state {
-        case .unavailable:
-            return "Not available in this build"
-        case .disconnected:
-            return "Back up your recipes to your own Drive and use them on your other phones and tablets, iPhone or Android."
-        case .connecting:
-            return "Finish signing in with Google…"
-        case .syncing:
-            return "Syncing with \(drive.accountEmail ?? "Google Drive")…"
-        case .offline:
-            return "You're offline. Changes will sync when you're back online."
-        case .failed(let message):
-            return message
-        case .idle:
-            let account = drive.accountEmail ?? "Google Drive"
-            if let last = drive.lastSynced {
-                return "\(account)\nLast synced \(last.formatted(.relative(presentation: .named)))"
-            }
-            return account
-        }
+        .scrollContentBackground(.hidden).background(Theme.canvas)
+        .navigationTitle("Reading recipes").navigationBarTitleDisplayMode(.inline)
     }
 }
 
 /// Where the person adds their own OpenRouter key so the AI can read their recipes.
 private struct AIReadingCard: View {
+    let model: String
     private let account = AIAccount.shared
     @State private var keyText = ""
     @State private var checking = false
@@ -202,9 +88,12 @@ private struct AIReadingCard: View {
     @State private var messageIsError = false
     @State private var info: OpenRouterClient.KeyInfo?
     @State private var confirmRemove = false
+    @State private var askConsent = false
     @FocusState private var keyFocused: Bool
 
     var body: some View {
+        let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelName = selectedModel.isEmpty || selectedModel == AIConfig.model ? AIConfig.modelDisplayName : selectedModel
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
@@ -219,8 +108,8 @@ private struct AIReadingCard: View {
                         .font(.rounded(.headline, .bold))
                         .foregroundStyle(Theme.ink)
                     Text(account.isConnected
-                         ? "Photos, pasted text and web pages are read by \(AIConfig.modelDisplayName) through OpenRouter."
-                         : "Add your own OpenRouter key and \(AIConfig.modelDisplayName) reads your photos and web pages. It's far more accurate than reading on the phone, and costs well under a cent a recipe.")
+                         ? "Photos, pasted text and web pages are read by \(modelName) through OpenRouter."
+                         : "Add your own OpenRouter key to enable AI recipe reading.")
                         .font(.rounded(.subheadline))
                         .foregroundStyle(Theme.inkSoft)
                         .fixedSize(horizontal: false, vertical: true)
@@ -250,7 +139,7 @@ private struct AIReadingCard: View {
                     .autocorrectionDisabled()
                     .focused($keyFocused)
                     .submitLabel(.done)
-                    .onSubmit(save)
+                    .onSubmit(requestSave)
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.sunken))
                 HStack(spacing: 10) {
@@ -260,10 +149,10 @@ private struct AIReadingCard: View {
                     .labelStyle(.iconOnly)
                     .buttonBorderShape(.capsule)
                     .tint(Theme.jadeDeep)
-                    Button(action: save) {
+                    Button(action: requestSave) {
                         HStack {
                             if checking { ProgressView().tint(Theme.onJade) }
-                            Text(checking ? "Checking…" : "Save key")
+                            Text(checking ? "Checking…" : "Turn on AI reading")
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -288,6 +177,12 @@ private struct AIReadingCard: View {
         .padding(18)
         .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.surface))
         .task(id: account.apiKey) { await refreshInfo() }
+        .alert("Send recipes to OpenRouter?", isPresented: $askConsent) {
+            Button("Cancel", role: .cancel) {}
+            Button("Turn on") { save() }
+        } message: {
+            Text(AIConfig.consentText)
+        }
         .confirmationDialog("Remove your OpenRouter key?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove key", role: .destructive) {
                 account.remove()
@@ -307,6 +202,13 @@ private struct AIReadingCard: View {
 
     private static func dollars(_ amount: Double) -> String {
         amount.formatted(.currency(code: "USD").precision(.fractionLength(amount < 1 ? 3 : 2)))
+    }
+
+    /// Nothing is shared with the AI until the person agrees to it.
+    private func requestSave() {
+        guard !AIAccount.cleaned(keyText).isEmpty, !checking else { return }
+        keyFocused = false
+        askConsent = true
     }
 
     private func save() {

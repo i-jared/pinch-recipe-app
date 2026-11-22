@@ -10,6 +10,12 @@ enum AIConfig {
     static let modelDisplayName = "DeepSeek V4.1 Flash"
     static let keysPage = URL(string: "https://openrouter.ai/keys")!
     static let creditsPage = URL(string: "https://openrouter.ai/settings/credits")!
+    static let cookModeKey = "matchCookModeIngredientsWithAI"
+    static let modelKey = "openRouterModel"
+    static let cookModeDisclosure = "Sends the recipe’s ingredients and directions to OpenRouter when you open Cook Mode."
+
+    /// Shown before AI reading is turned on, so sharing with the AI is an explicit choice.
+    static let consentText = "With AI reading on, the photos, pasted text and web pages you add to Pinch are sent to OpenRouter and a provider for your selected model. You can turn this off any time by removing your key."
 }
 
 /// The person's own OpenRouter key. It is kept in the Keychain on this device only: it isn't
@@ -31,7 +37,10 @@ final class AIAccount {
     var isConnected: Bool { apiKey != nil }
 
     /// A client for reading recipes, or nil when no key is saved.
-    var client: OpenRouterClient? { apiKey.map { OpenRouterClient(apiKey: $0) } }
+    var client: OpenRouterClient? {
+        let model = UserDefaults.standard.string(forKey: AIConfig.modelKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return apiKey.map { OpenRouterClient(apiKey: $0, model: model.isEmpty ? AIConfig.model : model) }
+    }
 
     /// "sk-or-v1-…9f3a": enough to recognize the key without showing it.
     var maskedKey: String {
@@ -66,6 +75,7 @@ struct OpenRouterClient: Sendable {
 
     let apiKey: String
     var model: String = AIConfig.model
+    var endpoint: URL = Self.chatURL
 
     enum Part: Sendable {
         case text(String)
@@ -74,6 +84,7 @@ struct OpenRouterClient: Sendable {
 
     enum Failure: LocalizedError, Equatable {
         case invalidKey
+        case sessionExpired
         case noCredits
         case rateLimited
         case offline
@@ -86,6 +97,7 @@ struct OpenRouterClient: Sendable {
         var errorDescription: String? {
             switch self {
             case .invalidKey: "OpenRouter didn't accept your key. Check it in Settings."
+            case .sessionExpired: "Sign in to Pinch again to use recipe reading."
             case .noCredits: "Your OpenRouter account is out of credit. Add more at openrouter.ai."
             case .rateLimited: "OpenRouter is busy right now. Try again in a minute."
             case .offline: "You're offline."
@@ -128,7 +140,7 @@ struct OpenRouterClient: Sendable {
     }
 
     private func send(_ body: [String: Any], attempt: Int = 1) async throws -> String {
-        var request = URLRequest(url: Self.chatURL, timeoutInterval: 150)
+        var request = URLRequest(url: endpoint, timeoutInterval: 150)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -136,7 +148,7 @@ struct OpenRouterClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let started = Date()
-        let session = WebRecipeImporter.freshSession(timeout: 150)
+        let session = WebRecipeImporter.freshSession(timeout: 150, delegate: endpoint == Self.chatURL ? nil : ServerSessionDelegate())
         defer { session.finishTasksAndInvalidate() }
         let (data, response): (Data, URLResponse)
         do {
@@ -151,6 +163,7 @@ struct OpenRouterClient: Sendable {
         if (200..<300).contains(status) {
             return try Self.content(from: data)
         }
+        if endpoint != Self.chatURL && status == 401 { throw Failure.sessionExpired }
         let failure = Self.failure(status: status, body: data)
         // Provider hiccups are usually gone a moment later.
         if attempt == 1, [500, 502, 503, 504].contains(status) {

@@ -19,6 +19,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.ui.Modifier
+import com.example.pinch.sync.GroupInvitation
+import com.example.pinch.ui.groups.*
+import com.example.pinch.ui.theme.Pinch
 import com.example.pinch.AppContainer
 import com.example.pinch.ui.capture.CaptureScreen
 import com.example.pinch.ui.cook.CookModeScreen
@@ -26,6 +37,7 @@ import com.example.pinch.ui.detail.DetailScreen
 import com.example.pinch.ui.editor.EditScreen
 import com.example.pinch.ui.library.LibraryScreen
 import com.example.pinch.ui.settings.SettingsScreen
+import com.example.pinch.ui.settings.ServerSettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
 
@@ -34,6 +46,10 @@ import kotlinx.serialization.Serializable
 @Serializable data class CookRoute(val id: String)
 @Serializable data class EditRoute(val id: String)
 @Serializable object CaptureRoute
+@Serializable object BackupRoute
+@Serializable object GroupsRoute
+@Serializable data class GroupRoute(val id: String)
+@Serializable data class SharedRecipeRoute(val groupId: String, val shareId: String)
 @Serializable object SettingsRoute
 
 /** Shared-element scopes for the tin → hero transition. */
@@ -44,8 +60,13 @@ val LocalTransitionScopes = compositionLocalOf<TransitionScopes?> { null }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun PinchNavHost(container: AppContainer, openCapture: MutableStateFlow<Boolean>) {
+fun PinchNavHost(container: AppContainer, openCapture: MutableStateFlow<Boolean>, invitation: MutableStateFlow<GroupInvitation?>, invitationError: MutableStateFlow<String?>) {
     val nav = rememberNavController()
+    val linkError by invitationError.collectAsState()
+    if (linkError != null) AlertDialog(onDismissRequest = { invitationError.value = null }, title = { Text("Couldn’t open invitation") }, text = { Text(linkError.orEmpty()) }, confirmButton = { TextButton(onClick = { invitationError.value = null }) { Text("OK") } })
+    val pendingInvitation by invitation.collectAsState()
+    LaunchedEffect(pendingInvitation) { if (pendingInvitation != null) nav.navigate(LibraryRoute) { popUpTo<LibraryRoute>(); launchSingleTop = true } }
+    pendingInvitation?.let { JoinGroupSheet(container, it) { invitation.value = null } }
     val shouldOpenCapture by openCapture.collectAsState()
     LaunchedEffect(shouldOpenCapture) {
         if (shouldOpenCapture) {
@@ -69,6 +90,8 @@ fun PinchNavHost(container: AppContainer, openCapture: MutableStateFlow<Boolean>
                         container = container,
                         onOpenRecipe = { nav.navigate(RecipeRoute(it)) },
                         onOpenSettings = { nav.navigate(SettingsRoute) },
+                        onOpenCookbook = { nav.navigate(GroupRoute(it.id)) },
+                        onConnect = { nav.navigate(BackupRoute) },
                         onOpenCapture = { nav.navigate(CaptureRoute) { launchSingleTop = true } },
                     )
                 }
@@ -82,6 +105,7 @@ fun PinchNavHost(container: AppContainer, openCapture: MutableStateFlow<Boolean>
                         onBack = { nav.popBackStack() },
                         onCook = { nav.navigate(CookRoute(id)) },
                         onEdit = { nav.navigate(EditRoute(id)) },
+                        onOpenGroup = { nav.navigate(GroupRoute(it)) },
                     )
                 }
             }
@@ -99,6 +123,18 @@ fun PinchNavHost(container: AppContainer, openCapture: MutableStateFlow<Boolean>
                         if (savedId != null) nav.navigate(RecipeRoute(savedId))
                     },
                 )
+            }
+            composable<BackupRoute> { ServerSettingsScreen(container, { nav.popBackStack() }) }
+            composable<GroupsRoute> {
+                GroupsScreen(container, onOpen = { nav.navigate(GroupRoute(it.id)) }, onConnect = { nav.navigate(BackupRoute) })
+            }
+            composable<GroupRoute> { entry ->
+                val id = entry.toRoute<GroupRoute>().id
+                GroupScreen(container, id, onBack = { nav.popBackStack() }, onRecipe = { nav.navigate(SharedRecipeRoute(id, it)) }, onOwnRecipe = { nav.navigate(RecipeRoute(it)) })
+            }
+            composable<SharedRecipeRoute> { entry ->
+                val route = entry.toRoute<SharedRecipeRoute>()
+                SharedRecipeScreen(container, route.groupId, route.shareId, onBack = { nav.popBackStack() }, onOpenCopy = { nav.navigate(RecipeRoute(it)) })
             }
             composable<SettingsRoute> {
                 SettingsScreen(container, onBack = { nav.popBackStack() })

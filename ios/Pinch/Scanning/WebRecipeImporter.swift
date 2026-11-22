@@ -89,7 +89,7 @@ enum WebRecipeImporter {
             case .notAWebPage: "That link isn't a web page Pinch can read."
             case .unreachable(let detail): "Couldn't open that page (\(detail))."
             case .noRecipe: "Couldn't find a recipe on that page. If you can see it in your browser, copy it and paste it in instead."
-            case .needsAI: "That page doesn't label its recipe, so Pinch needs AI reading to pick it out. Add an OpenRouter key in Settings, or copy the recipe and paste it in instead."
+            case .needsAI: "That page doesn’t have a recipe card Pinch can copy. Sign in to Pinch to read it, or copy and paste the recipe text."
             }
         }
     }
@@ -135,11 +135,11 @@ enum WebRecipeImporter {
 
     /// A fresh session per page: nothing a site sets (cookies, cached HTTP/3 routes that can go
     /// stale on some networks) carries over to the next import.
-    static func freshSession(timeout: TimeInterval) -> URLSession {
+    static func freshSession(timeout: TimeInterval, delegate: (any URLSessionDelegate)? = nil) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.urlCache = nil
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
     }
 
     static func fetch(_ url: URL) async throws -> (html: String, url: URL) {

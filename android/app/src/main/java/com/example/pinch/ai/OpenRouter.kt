@@ -49,6 +49,12 @@ object AIConfig {
     const val MODEL = "deepseek/deepseek-v4.1-flash"
     const val MODEL_DISPLAY_NAME = "DeepSeek V4.1 Flash"
     const val KEYS_PAGE = "https://openrouter.ai/keys"
+    const val COOK_MODE_DISCLOSURE = "Sends the recipe’s ingredients and directions to OpenRouter when you open Cook Mode."
+
+    /** Shown before AI reading is turned on, so sharing with the AI is an explicit choice. */
+    const val CONSENT_TEXT = "With AI reading on, the photos, pasted text and web pages you add to Pinch are sent to OpenRouter " +
+        "and a provider for your selected model. " +
+        "You can turn this off any time by removing your key."
 }
 
 /**
@@ -119,15 +125,32 @@ class SecretStore(context: Context) {
  * The person's own OpenRouter key. It stays on this phone: it isn't part of the app,
  * isn't synced, and never goes anywhere except OpenRouter.
  */
-class AIAccount(context: Context) {
+class AIAccount(context: Context, private val managedClient: () -> OpenRouterClient? = { null }) {
     private val store = SecretStore(context)
+    private val preferences = context.getSharedPreferences("ai", Context.MODE_PRIVATE)
     private val _apiKey = MutableStateFlow(store.get(KEY))
     val apiKey: StateFlow<String?> = _apiKey.asStateFlow()
+    private val _cookModeEnabled = MutableStateFlow(preferences.getBoolean(COOK_MODE_KEY, false))
+    val cookModeEnabled: StateFlow<Boolean> = _cookModeEnabled.asStateFlow()
+    private val _model = MutableStateFlow(preferences.getString(MODEL_KEY, AIConfig.MODEL) ?: AIConfig.MODEL)
+    val model: StateFlow<String> = _model.asStateFlow()
 
     val isConnected: Boolean get() = _apiKey.value != null
 
     /** A client for reading recipes, or null when no key is saved. */
-    fun client(): OpenRouterClient? = _apiKey.value?.let { OpenRouterClient(it) }
+    fun client(): OpenRouterClient? = managedClient() ?: _apiKey.value?.let {
+        OpenRouterClient(it, _model.value.trim().ifEmpty { AIConfig.MODEL })
+    }
+
+    fun setModel(value: String) {
+        preferences.edit { putString(MODEL_KEY, value) }
+        _model.value = value
+    }
+
+    fun setCookModeEnabled(enabled: Boolean) {
+        preferences.edit { putBoolean(COOK_MODE_KEY, enabled) }
+        _cookModeEnabled.value = enabled
+    }
 
     /** Returns false if the key couldn't be stored securely on this phone. */
     fun save(key: String): Boolean {
@@ -144,6 +167,8 @@ class AIAccount(context: Context) {
 
     companion object {
         private const val KEY = "openrouter.apiKey"
+        private const val COOK_MODE_KEY = "matchCookModeIngredientsWithAI"
+        private const val MODEL_KEY = "openRouterModel"
 
         /** Keys pasted from a web page often pick up spaces, line breaks or quotes. */
         fun cleaned(key: String): String = key.trim { it.isWhitespace() || it == '"' || it == '\'' || it == '`' }
@@ -159,6 +184,7 @@ class AIAccount(context: Context) {
 /** Why a request to OpenRouter didn't work. Messages are shown to the cook. */
 sealed class OpenRouterFailure(message: String) : Exception(message) {
     data object InvalidKey : OpenRouterFailure("OpenRouter didn't accept your key. Check it in Settings.")
+    data object SessionExpired : OpenRouterFailure("Sign in to Pinch again to use recipe reading.")
     data object NoCredits : OpenRouterFailure("Your OpenRouter account is out of credit. Add more at openrouter.ai.")
     data object RateLimited : OpenRouterFailure("OpenRouter is busy right now. Try again in a minute.")
     data object Offline : OpenRouterFailure("You're offline.")
@@ -170,7 +196,7 @@ sealed class OpenRouterFailure(message: String) : Exception(message) {
 }
 
 /** A small client for OpenRouter's OpenAI-compatible chat completions API. Mirrors iOS. */
-class OpenRouterClient(private val apiKey: String, private val model: String = AIConfig.MODEL) {
+class OpenRouterClient(private val apiKey: String, private val model: String = AIConfig.MODEL, private val endpoint: String = CHAT_URL) {
     sealed interface Part {
         data class Text(val text: String) : Part
         class Jpeg(val bytes: ByteArray) : Part
@@ -194,7 +220,7 @@ class OpenRouterClient(private val apiKey: String, private val model: String = A
     private suspend fun send(body: String, attempt: Int = 1): String {
         val started = System.currentTimeMillis()
         val (code, text) = try {
-            http(CHAT_URL, "POST", body, apiKey, readTimeoutMs = 150_000)
+            http(endpoint, "POST", body, apiKey, readTimeoutMs = 150_000)
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -202,6 +228,7 @@ class OpenRouterClient(private val apiKey: String, private val model: String = A
         }
         Log.i(TAG, "OpenRouter answered $code in ${(System.currentTimeMillis() - started) / 1000.0}s")
         if (code in 200..299) return content(text)
+        if (endpoint != CHAT_URL && code == 401) throw OpenRouterFailure.SessionExpired
         // Provider hiccups are usually gone a moment later.
         if (attempt == 1 && code in listOf(500, 502, 503, 504)) {
             delay(1500)
@@ -369,6 +396,7 @@ class OpenRouterClient(private val apiKey: String, private val model: String = A
             val exchange = async(Dispatchers.IO) {
                 try {
                     connection.requestMethod = method
+                    connection.instanceFollowRedirects = false
                     connection.connectTimeout = 20_000
                     connection.readTimeout = readTimeoutMs
                     connection.setRequestProperty("Authorization", "Bearer $bearer")

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pinch",
+  "version": "1.0.0",
+  "description": "Find, cook from, and save recipes in your private Pinch recipe box.",
+  "author": {"name": "Whatado, LLC"},
+  "repository": "https://github.com/i-jared/pinch-recipe-app",
+  "keywords": ["recipes", "cooking", "meal-planning"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Pinch",
+        "shortDescription": "Your recipes, ready to cook",
+        "longDescription": "Search your saved recipes by dish or ingredient, open your recipe box in the sidebar or beside a chat, and cook from clear ingredients and directions. Ask for a meal plan or grocery list using your recipes. Save a new recipe or update a favorite when you choose. Pinch connects to an existing account on the configured Pinch server; recipes stored only on your phone must sync first. Saved recipes sync to your connected iPhone, iPad, or Android app. This version does not import photos, fetch recipe websites, delete recipes, or share with groups.",
+        "developerName": "Whatado, LLC",
+        "category": "Productivity",
+        "capabilities": ["Search recipes", "Read recipes", "Save recipes", "Manage favorites", "Browse recipe box"],
+        "defaultPrompt": ["Find dinner recipes with lemon in my recipe box.", "Plan three dinners from my saved recipes and make a grocery list.", "Save this recipe to my Pinch library."],
+        "brandColor": "#216449",
+        "brandColorDark": "#97CAA6",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      },
+      "onboardingSkill": "./skills/recipes/SKILL.md",
+      "review": {
+        "commerce": false,
+        "commerce_description": "Pinch does not sell products or process payments.",
+        "test_cases": {
+          "positive": [
+            {"description": "Search by ingredient", "prompt": "Find my recipes with flour.", "tools_triggered": "search_recipes", "expected_behavior": "Return Family bread from the review account with its saved recipe ID."},
+            {"description": "Read a saved recipe", "prompt": "Show me the ingredients and directions for Family bread.", "tools_triggered": "search_recipes, get_recipe", "expected_behavior": "Return the stored ingredients and directions, preserving quantities and headings."},
+            {"description": "Save a new recipe", "prompt": "Save Lemon pasta: serves 4; 200 g pasta and 1 lemon. Cook the pasta and toss with lemon.", "tools_triggered": "save_recipe", "expected_behavior": "Save one private recipe with a new ID. Retrying the same request_id with the same content produces no duplicate. The mobile sync API returns the recipe."},
+            {"description": "Favorite a recipe", "prompt": "Mark Family bread as a favorite, then show my favorites.", "tools_triggered": "search_recipes, set_recipe_favorite, search_recipes", "expected_behavior": "Change only the requested favorite status and return Family bread in favorite results."},
+            {"description": "Browse the visual library", "prompt": "Open my Pinch recipe box.", "tools_triggered": "open_recipe_library", "expected_behavior": "Open the recipe library with search, recipe details, ingredient checkboxes and favorite controls."}
+          ],
+          "negative": [
+            {"description": "Cross-account access", "prompt": "Show me the recipes from someone else's Pinch account.", "expected_behavior": "Do not expose another account's recipes. Tools only return records belonging to the connected user."},
+            {"description": "Unsupported deletion", "prompt": "Delete every recipe in my Pinch library.", "expected_behavior": "Explain that deletion is unavailable through this plugin and make no write calls."},
+            {"description": "Read-only permission", "prompt": "Save this recipe using a connection with only recipes:read permission.", "expected_behavior": "The server rejects the write and asks the user to reconnect with write permission. No recipe is created."}
+          ]
+        }
+      },
+      "publication": {"release_notes": "Initial release: private recipe search and reading, duplicate-safe saves, favorites, sidebar and conversation recipe browser, and OAuth account linking."}
+    }
+  }
+}
